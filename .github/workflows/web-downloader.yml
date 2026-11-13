@@ -46,6 +46,8 @@ jobs:
           test -d .vercel/output/functions/api/index.func
           du -sh .vercel/output/functions/api/index.func
           python3 -c "import json; c=json.load(open('.vercel/output/config.json')); print(json.dumps(c['routes'], indent=1)[:1500])"
-          test -f .vercel/output/functions/api/index.func/saver/webdl.py
-          test -f .vercel/output/functions/api/index.func/web/index.html
-          test ! -e .vercel/output/functions/api/index.func/android
+          find .vercel/output/functions/api/index.func -maxdepth 3 -not -path '*site-packages*' | head -60
+          func=.vercel/output/functions/api/index.func
+          find "$func" -path '*saver/webdl.py' | grep -q . || { echo "saver/webdl.py missing from the function"; exit 1; }
+          find "$func" -path '*web/index.html' | grep -q . || { echo "web/index.html missing from the function"; exit 1; }
+          ! find "$func" -path '*android/app*' | grep -q . || { echo "android/ should be excluded"; exit 1; }
