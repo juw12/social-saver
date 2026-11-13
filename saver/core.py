@@ -60,6 +60,9 @@ PLATFORMS = {
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 NOT_A_PROFILE = {"explore", "home", "i", "foryou", "following", "search", "reels", "login"}
+NETSCAPE_HTTPONLY_PREFIX = "#HttpOnly_"
+THUMBNAIL_KEYS = ("display_url", "thumbnail", "thumbnail_url", "cover", "origin_cover", "image")
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
 
 # Staging subfolder written by the engine -> type folder inside the zip.
 KIND_TO_TYPE = {
@@ -295,6 +298,122 @@ def is_signed_in(platform: str) -> bool:
 
 def sign_out(platform: str) -> None:
     cookie_path(platform).unlink(missing_ok=True)
+
+
+def parse_cookie_export(text: str) -> list[dict]:
+    """Cookies from a browser export: Netscape cookies.txt, or the JSON list that
+    cookie extensions (Cookie-Editor, EditThisCookie) save."""
+    stripped = text.lstrip("\ufeff").strip()
+    if stripped.startswith(("[", "{")):
+        try:
+            data = json.loads(stripped)
+        except ValueError as error:
+            raise ValueError("That cookie file is not valid JSON.") from error
+        if isinstance(data, dict):
+            data = data.get("cookies", [])
+        cookies = []
+        for item in data if isinstance(data, list) else []:
+            if not isinstance(item, dict) or not item.get("name") or not item.get("domain"):
+                continue
+            cookies.append({
+                "name": str(item["name"]),
+                "value": str(item.get("value", "")),
+                "domain": str(item["domain"]),
+                "path": item.get("path") or "/",
+                "secure": bool(item.get("secure")),
+                "expires": item.get("expirationDate") or item.get("expires") or 0,
+            })
+        return cookies
+
+    cookies = []
+    for line in stripped.splitlines():
+        if line.startswith(NETSCAPE_HTTPONLY_PREFIX):
+            line = line[len(NETSCAPE_HTTPONLY_PREFIX):]
+        elif not line.strip() or line.startswith("#"):
+            continue
+        fields = line.rstrip("\r\n").split("\t")
+        if len(fields) != 7:
+            continue
+        domain, _include_subdomains, path, secure, expires, name, value = fields
+        cookies.append({
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": path or "/",
+            "secure": secure.upper() == "TRUE",
+            "expires": expires,
+        })
+    return cookies
+
+
+def import_cookies(platform: str, text: str) -> int:
+    """Use cookies exported from the user's own browser instead of the sign-in window.
+
+    Keeps only this platform's cookies and refuses a file without the login cookie,
+    so a wrong or logged-out export never replaces a working sign-in.
+    """
+    spec = PLATFORMS[platform]
+    cookies = [
+        cookie for cookie in parse_cookie_export(text)
+        if platform_for_host(cookie["domain"].lstrip(".")) == platform
+    ]
+    if not cookies:
+        raise ValueError(
+            f"No {spec['label']} cookies in that file. Export them from your browser while "
+            f"you are on {spec['domains'][0]} and signed in."
+        )
+    auth_cookie = spec["auth_cookie"]
+    if not any(cookie["name"] == auth_cookie and cookie["value"] for cookie in cookies):
+        raise ValueError(
+            f"That file has {spec['label']} cookies but not the login one ({auth_cookie}). "
+            f"Sign in to {spec['label']} in your browser, then export again."
+        )
+    write_cookie_file(cookie_path(platform), cookies)
+    return len(cookies)
+
+
+# ---------------------------------------------------------------- item picker
+
+def _url_extension(url: str) -> str:
+    return Path(urlparse(url).path).suffix.lower()
+
+
+def thumbnail_for(metadata: dict, file_url: str) -> str | None:
+    """A small picture to show for one item in the picker, or None."""
+    for key in THUMBNAIL_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.startswith("http"):
+            return value
+    extension = "." + str(metadata.get("extension") or "").lower().lstrip(".")
+    if extension in IMAGE_EXTENSIONS or _url_extension(file_url) in IMAGE_EXTENSIONS:
+        return file_url
+    return None
+
+
+def preview_items_from_engine(messages: list) -> list[dict]:
+    """Items of one post from `gallery-dl --dump-json` output, numbered like --range counts them."""
+    for message in messages:
+        if message and message[0] == -1:
+            details = message[-1] if isinstance(message[-1], dict) else {}
+            raise ValueError(f"{details.get('error', 'Error')}: {details.get('message', '')}".strip())
+    items = []
+    for message in messages:
+        if not message or message[0] != 3 or len(message) < 3:
+            continue
+        file_url, metadata = message[1], message[2] or {}
+        extension = "." + str(metadata.get("extension") or "").lower().lstrip(".")
+        is_video = extension in VIDEO_EXTENSIONS or _url_extension(file_url) in VIDEO_EXTENSIONS
+        items.append({
+            "index": len(items) + 1,
+            "video": is_video,
+            "thumb": thumbnail_for(metadata, file_url),
+        })
+    return items
+
+
+def range_for_pick(pick: list[int]) -> str:
+    """gallery-dl --range value for the items ticked in the picker, e.g. '1,3,4'."""
+    return ",".join(str(index) for index in sorted(set(pick)))
 
 
 # ---------------------------------------------------------------- zips

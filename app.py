@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 import requests
-from flask import Flask, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, request
 from werkzeug.serving import make_server
 
 from saver import core, threads
@@ -28,6 +28,8 @@ ENGINE_COMMAND = [sys.executable, "-m", "gallery_dl"]
 ENGINE_PROBLEM_LINE = re.compile(r"^\[[\w.-]+\]\[(warning|error)\]")
 ENGINE_INFO_LINE = re.compile(r"^\[[\w.-]+\]\[(debug|info)\]")
 NO_CONSOLE_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+PREVIEW_TIMEOUT_SECONDS = 180
+MAX_PICKER_ITEMS = 200
 
 
 class JobRunner:
@@ -41,6 +43,8 @@ class JobRunner:
         self.current = ""
         self.downloaded = 0
         self.log_lines: deque[str] = deque(maxlen=400)
+        self.preview: dict = {"id": 0, "target": None, "items": []}
+        self.thumb_cache: dict[tuple[int, int], tuple[bytes, str]] = {}
 
     @property
     def cancelled(self) -> bool:
@@ -93,12 +97,14 @@ class JobRunner:
 
 
 def run_engine(runner: JobRunner, run: core.EngineRun, config_path: Path,
-               limit: int | None, platform_label: str) -> None:
+               limit: int | None, platform_label: str, pick: list[int] | None = None) -> None:
     """One gallery-dl run; counts saved files and explains known errors."""
     command = [*ENGINE_COMMAND, "--config-ignore", "--config", str(config_path)]
     if run.file_filter:
         command += ["--filter", run.file_filter]
-    if limit:
+    if pick:
+        command += ["--range", core.range_for_pick(pick)]
+    elif limit:
         command += ["--range", f"1-{limit}"]
     command.append(run.url)
     skipped = 0
@@ -123,17 +129,24 @@ def run_engine(runner: JobRunner, run: core.EngineRun, config_path: Path,
         runner.log(f"{skipped} file(s) were already downloaded before - skipped.")
 
 
-def download_targets(runner: JobRunner, targets: list[core.Target],
-                     chosen_types: dict[str, list[str]], limit: int | None) -> None:
+def write_engine_config() -> Path:
     home = core.data_home()
     staging_dir = home / "staging"
     staging_dir.mkdir(parents=True, exist_ok=True)
-    output_dir = Path(core.load_settings()["output_dir"])
     config_path = home / "engine-config.json"
     config_path.write_text(
         json.dumps(core.build_engine_config(staging_dir, home / "history.sqlite3"), indent=2),
         encoding="utf-8",
     )
+    return config_path
+
+
+def download_targets(runner: JobRunner, targets: list[core.Target],
+                     chosen_types: dict[str, list[str]], limit: int | None,
+                     pick: list[int] | None = None) -> None:
+    staging_dir = core.data_home() / "staging"
+    output_dir = Path(core.load_settings()["output_dir"])
+    config_path = write_engine_config()
 
     for target in targets:
         if runner.cancelled:
@@ -146,13 +159,13 @@ def download_targets(runner: JobRunner, targets: list[core.Target],
             if target.platform == "threads":
                 runner.downloaded += threads.download(
                     target, types, staging_dir, output_dir, limit,
-                    runner.log, lambda: runner.cancelled,
+                    runner.log, lambda: runner.cancelled, pick=pick,
                 )
             else:
                 for run in core.plan_runs(target, types):
                     if runner.cancelled:
                         break
-                    run_engine(runner, run, config_path, limit, spec["label"])
+                    run_engine(runner, run, config_path, limit, spec["label"], pick)
         except requests.RequestException as error:
             runner.log(f"{spec['label']}: {error}")
             hint = core.explain_engine_message(str(error), spec["label"])
@@ -173,6 +186,58 @@ def download_targets(runner: JobRunner, targets: list[core.Target],
     runner.log("Cancelled." if runner.cancelled else "All done.")
 
 
+def preview_target(target: core.Target) -> list[dict]:
+    """Picker items (with picture urls) for one post link."""
+    if target.platform == "threads":
+        return threads.preview(target)
+    command = [
+        *ENGINE_COMMAND, "--config-ignore", "--config", str(write_engine_config()),
+        "--dump-json", target.url,
+    ]
+    result = subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=PREVIEW_TIMEOUT_SECONDS,
+        creationflags=NO_CONSOLE_WINDOW,
+    )
+    label = core.PLATFORMS[target.platform]["label"]
+    try:
+        messages = json.loads(result.stdout or "[]")
+    except ValueError:
+        messages = []
+    try:
+        items = core.preview_items_from_engine(messages)
+    except ValueError as error:
+        hint = core.explain_engine_message(str(error), label)
+        raise ValueError(hint or f"{label} could not list that post ({error}).") from error
+    if not items:
+        problem = next(
+            (line for line in result.stderr.splitlines() if ENGINE_PROBLEM_LINE.match(line)), "",
+        )
+        hint = core.explain_engine_message(problem, label) if problem else None
+        raise ValueError(hint or f"Nothing to pick in that {label} link.")
+    return items
+
+
+def single_link_target(body: dict) -> core.Target:
+    """The one post link that the picker works on."""
+    platform = body.get("platform")
+    if platform not in core.PLATFORMS:
+        raise ValueError("Pick a platform first.")
+    lines = [line for line in str(body.get("targets", "")).splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise ValueError("Choosing items works on one post link at a time.")
+    target = core.parse_target(lines[0], platform)
+    if not target.url:
+        raise ValueError("Choosing items needs a link to one post, not a whole account.")
+    return target
+
+
 def update_engines(runner: JobRunner) -> None:
     runner.current = "Updating download engines"
     exit_code = runner.run_process(
@@ -190,6 +255,8 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
     @app.before_request
     def require_token():
         if request.path.startswith("/api/") and request.headers.get("X-Token") != token:
+            abort(403)
+        if request.path.startswith("/thumb/") and request.args.get("t") != token:
             abort(403)
 
     @app.errorhandler(ValueError)
@@ -244,9 +311,76 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
         limit = int(body.get("limit") or 0) or None
         if limit is not None and limit < 1:
             raise ValueError("The limit must be 1 or more.")
-        if not runner.start(lambda: download_targets(runner, targets, {platform: types}, limit)):
+        pick = body.get("pick")
+        if pick is not None:
+            if runner.preview["target"] != single_link_target(body):
+                raise ValueError("The link changed. Press 'Choose items' again.")
+            if not isinstance(pick, list) or not pick \
+                    or not all(isinstance(index, int) and index >= 1 for index in pick):
+                raise ValueError("Tick at least one item to save.")
+            limit = None
+        job = lambda: download_targets(runner, targets, {platform: types}, limit, pick)  # noqa: E731
+        if not runner.start(job):
             raise ValueError("A download is already running.")
         return jsonify(ok=True)
+
+    @app.post("/api/preview")
+    def preview():
+        target = single_link_target(request.get_json(force=True))
+        try:
+            items = preview_target(target)[:MAX_PICKER_ITEMS]
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("The platform took too long to answer. Try again.") from error
+        except requests.RequestException as error:
+            label = core.PLATFORMS[target.platform]["label"]
+            raise ValueError(core.explain_engine_message(str(error), label) or str(error)) from error
+        runner.preview = {"id": runner.preview["id"] + 1, "target": target, "items": items}
+        runner.thumb_cache.clear()
+        return jsonify(
+            id=runner.preview["id"],
+            items=[
+                {"index": item["index"], "video": item["video"], "has_thumb": bool(item["thumb"])}
+                for item in items
+            ],
+        )
+
+    @app.get("/thumb/<int:preview_id>/<int:index>")
+    def thumbnail(preview_id: int, index: int):
+        """Picture of one picker item, fetched here so the platform's CDN rules don't block it."""
+        if preview_id != runner.preview["id"] or not 1 <= index <= len(runner.preview["items"]):
+            abort(404)
+        key = (preview_id, index)
+        if key not in runner.thumb_cache:
+            picture_url = runner.preview["items"][index - 1]["thumb"]
+            if not picture_url:
+                abort(404)
+            platform = runner.preview["target"].platform
+            session = threads.new_session() if platform == "threads" else requests.Session()
+            session.headers.setdefault("User-Agent", threads.BROWSER_HEADERS["User-Agent"])
+            try:
+                answer = session.get(picture_url, timeout=30)
+                answer.raise_for_status()
+            except requests.RequestException:
+                abort(502)
+            content_type = answer.headers.get("Content-Type", "image/jpeg")
+            if not content_type.startswith("image/"):
+                abort(502)
+            runner.thumb_cache[key] = (answer.content, content_type)
+        picture, content_type = runner.thumb_cache[key]
+        return Response(picture, mimetype=content_type, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/import-cookies")
+    def import_cookies():
+        body = request.get_json(force=True)
+        platform = body.get("platform")
+        if platform not in core.PLATFORMS:
+            raise ValueError("Unknown platform.")
+        text = str(body.get("text", ""))
+        if not text.strip():
+            raise ValueError("That file is empty.")
+        count = core.import_cookies(platform, text)
+        runner.log(f"Imported {count} {core.PLATFORMS[platform]['label']} cookies - signed in.")
+        return jsonify(ok=True, count=count)
 
     @app.post("/api/cancel")
     def cancel():

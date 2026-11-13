@@ -24,6 +24,9 @@ You need Python 3.10 or newer on the PC.
 3. Tick the types you want. Optional: fill in "Only the newest" to take just the latest few.
 4. Press **Download**. The log shows progress.
 
+**Only some photos of one post?** Paste a single post link and press **Choose items...**.
+You get a grid of thumbnails; untick what you don't want and press **Save selected**.
+
 ## Where the files go
 
 Default folder is `E:\SocialSaver` (change it in the app).
@@ -61,6 +64,12 @@ it. It only keeps the session cookie, on this PC, in
   username and password, or the QR code.
 - **Sign out** deletes the cookie file.
 
+**Import cookies file** (next to Sign in) is the other way in: if the sign-in window
+won't work (Google login, a security check), sign in with your normal browser, export
+the cookies with an extension such as "Get cookies.txt LOCALLY" or "Cookie-Editor"
+(cookies.txt or JSON), and pick that file. Only that platform's cookies are kept, and a
+file without the login cookie is refused, so a bad export never breaks a working sign-in.
+
 ## No duplicates
 
 The app remembers every item it has saved (`history.sqlite3`) and also checks
@@ -72,8 +81,11 @@ duplicates.
 
 - **Office network:** the company proxy blocks Instagram, TikTok and Threads.
   Use the app on home Wi-Fi or a phone hotspot for those. X works at the office.
-- **Threads is beta:** it reads the public profile page, so it gets the newest
-  posts only, not the full history.
+- **Threads is beta:** it reads the profile page, then loads older posts the same
+  way the Threads website does when you scroll (it finds the current "load more"
+  query in the page itself, because Meta changes it often). If that fails, you still
+  get the newest posts and the log says so. Advanced: put `"threads_doc_id": "<id>"`
+  in `%LOCALAPPDATA%\SocialSaver\settings.json` to pin the query id.
 - **If a platform stops working:** press "Update download engines". Platforms change
   their sites often and the download engines get fixes every few days.
 - Download slowly and for yourself only. Mass downloading can get an account

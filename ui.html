@@ -158,6 +158,45 @@
   #zips .size { color: var(--muted); }
   .field { margin-top: 14px; }
   label.title { display: block; font-weight: 600; margin-bottom: 6px; }
+  .account-actions { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+  #picker { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+  #pickerGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 10px;
+    margin: 10px 0 12px;
+  }
+  .tile {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    border: 2px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    background: var(--soft);
+  }
+  .tile:has(input:checked) { border-color: var(--accent); }
+  .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .stand-in {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .tile input { position: absolute; top: 8px; left: 8px; accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
+  .tile .badge {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
 </style>
 </head>
 <body>
@@ -172,7 +211,11 @@
     <div class="tabs" id="tabs"></div>
     <div class="account row spread">
       <div id="signinText"></div>
-      <button class="plain" id="signinButton"></button>
+      <div class="account-actions">
+        <button class="linkish" id="importCookies" title="Use cookies exported from your own browser (cookies.txt or JSON)">Import cookies file</button>
+        <button class="plain" id="signinButton"></button>
+      </div>
+      <input type="file" id="cookieFile" accept=".txt,.json,text/plain,application/json" hidden>
     </div>
   </section>
 
@@ -195,9 +238,25 @@
 
     <div class="field row">
       <button class="primary" id="startButton">Download</button>
+      <button class="plain" id="pickButton" hidden>Choose items...</button>
       <button class="plain" id="stopButton" hidden>Stop</button>
     </div>
     <div id="error"></div>
+
+    <div id="picker" hidden>
+      <div class="row spread">
+        <strong id="pickerTitle">Pick what to save</strong>
+        <div class="row">
+          <button class="linkish" id="pickAll">All</button>
+          <button class="linkish" id="pickNone">None</button>
+        </div>
+      </div>
+      <div id="pickerGrid"></div>
+      <div class="row">
+        <button class="primary" id="savePicked">Save selected</button>
+        <button class="plain" id="closePicker">Cancel</button>
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -315,6 +374,8 @@ function renderTypes() {
 function renderJob() {
   const job = state.job;
   byId("startButton").disabled = job.running;
+  byId("pickButton").disabled = job.running;
+  byId("savePicked").disabled = job.running;
   byId("stopButton").hidden = !job.running;
   byId("status").textContent = job.running
     ? "Working on " + (job.current || "...") + " - " + job.downloaded + " file(s) saved so far"
@@ -370,6 +431,127 @@ byId("startButton").onclick = () => act("start", {
   types: [...(tickedTypes[selectedPlatform] || [])],
   limit: byId("limit").value,
 });
+
+// ---- item picker: one post link -> thumbnails -> save only the ticked ones
+
+function isSingleLink() {
+  const lines = byId("targets").value.split("\n").filter((line) => line.trim());
+  return lines.length === 1 && lines[0].includes("/");
+}
+
+function updatePickButton() {
+  byId("pickButton").hidden = !isSingleLink();
+}
+
+function closePicker() {
+  byId("picker").hidden = true;
+  byId("pickerGrid").replaceChildren();
+}
+
+function pickedIndexes() {
+  return [...byId("pickerGrid").querySelectorAll("input:checked")].map((box) => Number(box.value));
+}
+
+function updatePickerTitle() {
+  const total = byId("pickerGrid").querySelectorAll("input").length;
+  const picked = pickedIndexes().length;
+  byId("pickerTitle").textContent = "Pick what to save - " + picked + " of " + total + " ticked";
+  byId("savePicked").textContent = "Save selected (" + picked + ")";
+}
+
+function renderPicker(preview) {
+  const grid = byId("pickerGrid");
+  grid.replaceChildren();
+  for (const item of preview.items) {
+    const tile = document.createElement("label");
+    tile.className = "tile";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = true;
+    box.value = item.index;
+    box.onchange = updatePickerTitle;
+    if (item.has_thumb) {
+      const picture = document.createElement("img");
+      picture.alt = (item.video ? "Video " : "Photo ") + item.index;
+      picture.loading = "lazy";
+      picture.src = "/thumb/" + preview.id + "/" + item.index + "?t=" + encodeURIComponent(TOKEN);
+      picture.onerror = () => picture.replaceWith(standIn(item));
+      tile.append(picture);
+    } else {
+      tile.append(standIn(item));
+    }
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = (item.video ? "video " : "") + "#" + item.index;
+    tile.append(box, badge);
+    grid.append(tile);
+  }
+  byId("picker").hidden = false;
+  updatePickerTitle();
+}
+
+function standIn(item) {
+  const text = document.createElement("span");
+  text.className = "stand-in";
+  text.textContent = (item.video ? "Video " : "Photo ") + item.index;
+  return text;
+}
+
+byId("targets").addEventListener("input", () => {
+  updatePickButton();
+  closePicker();
+});
+byId("pickButton").onclick = async () => {
+  byId("error").textContent = "";
+  const button = byId("pickButton");
+  button.disabled = true;
+  button.textContent = "Looking...";
+  try {
+    renderPicker(await api("preview", { platform: selectedPlatform, targets: byId("targets").value }));
+  } catch (error) {
+    byId("error").textContent = error.message;
+  } finally {
+    button.textContent = "Choose items...";
+    button.disabled = state ? state.job.running : false;
+  }
+};
+byId("pickAll").onclick = () => {
+  byId("pickerGrid").querySelectorAll("input").forEach((box) => (box.checked = true));
+  updatePickerTitle();
+};
+byId("pickNone").onclick = () => {
+  byId("pickerGrid").querySelectorAll("input").forEach((box) => (box.checked = false));
+  updatePickerTitle();
+};
+byId("closePicker").onclick = closePicker;
+byId("savePicked").onclick = async () => {
+  const pick = pickedIndexes();
+  if (!pick.length) {
+    byId("error").textContent = "Tick at least one item to save.";
+    return;
+  }
+  await act("start", {
+    platform: selectedPlatform,
+    targets: byId("targets").value,
+    types: [...(tickedTypes[selectedPlatform] || [])],
+    pick,
+  });
+  if (!byId("error").textContent) {
+    closePicker();
+  }
+};
+
+// ---- cookies exported from the user's own browser
+
+byId("importCookies").onclick = () => byId("cookieFile").click();
+byId("cookieFile").onchange = async () => {
+  const file = byId("cookieFile").files[0];
+  byId("cookieFile").value = "";
+  if (file) {
+    await act("import-cookies", { platform: selectedPlatform, text: await file.text() });
+  }
+};
+
 byId("stopButton").onclick = () => act("cancel", {});
 byId("signinButton").onclick = () =>
   act(currentPlatform().signed_in ? "signout" : "signin", { platform: selectedPlatform });
