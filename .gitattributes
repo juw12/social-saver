@@ -1,1 +1,7 @@
 *.sh text eol=lf
+*.bat text eol=crlf
+# Left out of the download zip (git archive):
+tests/ export-ignore
+.github/ export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore

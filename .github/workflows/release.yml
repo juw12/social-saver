@@ -1,0 +1,27 @@
+name: release
+
+# Push a tag like v1.0.1 and this makes the GitHub release with the Windows zip.
+# The landing page's "Download for Windows" button always points at the latest one.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Windows zip
+        run: git archive --format=zip --prefix=SocialSaver/ -o SocialSaver-windows.zip HEAD
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" SocialSaver-windows.zip \
+            --title "Social Saver $GITHUB_REF_NAME" \
+            --notes "**Windows:** download SocialSaver-windows.zip, unzip it and double-click Start Social Saver.bat. The first run installs Python (if missing) and the download engines.
+
+          **Android / iPhone:** see [Use it on your phone](https://github.com/juw12/social-saver#use-it-on-your-phone-android-or-iphone)."

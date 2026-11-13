@@ -12,10 +12,11 @@ Free, runs on your own PC, no account with us and no API keys. MIT licence.
 
 ## Open it
 
-Double-click `Start Social Saver.bat`.
+1. Download **[SocialSaver-windows.zip](https://github.com/juw12/social-saver/releases/latest/download/SocialSaver-windows.zip)** and unzip it.
+2. Double-click `Start Social Saver.bat`.
 
-The first run installs what it needs (Flask, pywebview, gallery-dl, yt-dlp).
-You need Python 3.10 or newer on the PC.
+The first run installs what it needs (Flask, pywebview, gallery-dl, yt-dlp). If the PC has no
+Python yet, it installs Python 3.12 for you first (with winget, no admin needed).
 
 ## Use it
 
