@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Social Saver</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/static/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Social Saver">
+<meta name="theme-color" content="#2f5d50">
 <style>
   :root {
     --page: #f5f3ee;
@@ -187,6 +194,25 @@
     font-size: 13px;
   }
   .tile input { position: absolute; top: 8px; left: 8px; accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
+  #zips a { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .phone-grid { display: flex; gap: 18px; align-items: flex-start; margin-top: 12px; }
+  #phoneQr svg { display: block; border-radius: 8px; width: 170px; height: 170px; }
+  #phoneUrl { word-break: break-all; font: 12.5px Consolas, monospace; }
+  .phone-grid p { margin: 0 0 8px; }
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    main { padding: 16px 12px calc(28px + env(safe-area-inset-bottom)); }
+    header h1 { font-size: 22px; }
+    .card { padding: 14px; border-radius: 12px; }
+    .tab { padding: 8px 12px; }
+    .account { flex-direction: column; align-items: stretch; }
+    .account-actions { margin-left: 0; justify-content: space-between; }
+    textarea, input[type=number] { font-size: 16px; }  /* stops iPhone zooming in */
+    button.primary { flex: 1; padding: 13px 16px; }
+    #pickerGrid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+    #log { height: 140px; }
+    .phone-grid { flex-direction: column; }
+  }
   .tile .badge {
     position: absolute;
     right: 6px;
@@ -275,16 +301,38 @@
     </div>
     <p class="hint" id="outputDir"></p>
     <ul id="zips"></ul>
+    <p class="hint" id="phoneZipHint" hidden>Tap a zip to keep a copy on this phone.</p>
     <p class="hint">
       Inside each zip: one folder per type (posts, reels, stories, highlights, videos).
       <button class="linkish" id="forgetHistory">Forget download history</button> &middot;
       <button class="linkish" id="updateEngines">Update download engines</button>
     </p>
   </section>
+
+  <section class="card" id="phoneCard" hidden>
+    <div class="row spread">
+      <h2 style="margin:0">Use on your phone</h2>
+      <label class="chip"><input type="checkbox" id="phoneToggle"> On</label>
+    </div>
+    <p class="hint" id="phoneOff">Turn on to use Social Saver from an Android phone or iPhone on the same Wi-Fi.
+      This PC does the downloading; the phone shows this screen and can keep copies of the zips.</p>
+    <div class="phone-grid" id="phoneOn" hidden>
+      <div id="phoneQr"></div>
+      <div>
+        <p><strong>Scan this with the phone camera.</strong> Same Wi-Fi as this PC.</p>
+        <p class="hint">Or type this link: <span id="phoneUrl"></span></p>
+        <p class="hint">Keep it as an app: iPhone Safari Share &gt; Add to Home Screen. Android Chrome menu &gt; Add to Home screen.</p>
+        <p class="hint">If the phone can't connect, allow Python on "Private networks" when Windows asks.
+          <button class="linkish" id="phoneNewKey">New key</button> locks out phones that scanned before.</p>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script>
 const TOKEN = "__TOKEN__";
+const MODE = "__MODE__";  // "desktop" (the PC window) or "phone" (a browser over Wi-Fi / Termux)
+const ON_PHONE = MODE === "phone";
 const TYPE_LABELS = { posts: "Posts (photos)", videos: "Videos" };
 let state = null;
 let selectedPlatform = "instagram";
@@ -345,9 +393,12 @@ function renderTabs() {
   const platform = currentPlatform();
   byId("signinText").textContent = platform.signed_in
     ? "Signed in to " + platform.label + " - private accounts you follow are included."
-    : "Not signed in to " + platform.label + ". Sign in to reach private accounts you follow"
+    : "Not signed in to " + platform.label + ". "
+      + (ON_PHONE ? "Sign in on the PC, or import a cookies file" : "Sign in")
+      + " to reach private accounts you follow"
       + (platform.id === "threads" ? "." : " (most downloads need it).");
   byId("signinButton").textContent = platform.signed_in ? "Sign out" : "Sign in";
+  byId("signinButton").hidden = ON_PHONE && !platform.signed_in;
 }
 
 function renderTypes() {
@@ -404,8 +455,12 @@ function renderZips() {
   }
   for (const zip of state.zips) {
     const item = document.createElement("li");
-    const name = document.createElement("span");
+    const name = document.createElement(ON_PHONE ? "a" : "span");
     name.textContent = zip.name;
+    if (ON_PHONE) {
+      name.href = "/files/" + encodeURIComponent(zip.name);
+      name.download = zip.name;
+    }
     const size = document.createElement("span");
     size.className = "size";
     size.textContent = zip.megabytes + " MB";
@@ -564,7 +619,81 @@ byId("forgetHistory").onclick = () => {
   }
 };
 
-refresh();
+// ---- phone mode: the PC screen switches it on and shows the QR code
+
+async function refreshPhone() {
+  const phone = await api("phone");
+  byId("phoneToggle").checked = phone.enabled;
+  byId("phoneOn").hidden = !phone.enabled;
+  byId("phoneOff").hidden = phone.enabled;
+  byId("phoneUrl").textContent = phone.url;
+  byId("phoneQr").innerHTML = phone.qr || "";  // SVG made by the app itself
+  if (phone.error) {
+    byId("error").textContent = phone.error;
+  }
+}
+
+async function setPhone(body) {
+  byId("error").textContent = "";
+  try {
+    await api("phone", body);
+  } catch (error) {
+    byId("error").textContent = error.message;
+  }
+  await refreshPhone();
+}
+
+if (ON_PHONE) {
+  for (const id of ["openFolder", "chooseFolder"]) {
+    byId(id).hidden = true;
+  }
+  byId("phoneZipHint").hidden = false;
+} else {
+  byId("phoneCard").hidden = false;
+  byId("phoneToggle").onchange = () => setPhone({ enabled: byId("phoneToggle").checked });
+  byId("phoneNewKey").onclick = () => {
+    if (confirm("Make a new phone key? Phones that scanned the old QR code must scan again.")) {
+      setPhone({ new_key: true });
+    }
+  };
+  refreshPhone().catch(() => {});
+}
+
+// ---- a link handed over in the address (?url=...), e.g. from an iPhone Shortcut
+
+function platformForLink(link) {
+  let host = "";
+  try {
+    host = new URL(link.includes("://") ? link : "https://" + link).hostname.toLowerCase();
+  } catch (error) {
+    return null;
+  }
+  const match = state.platforms.find((platform) =>
+    platform.domains.some((domain) => host === domain || host.endsWith("." + domain)));
+  return match ? match.id : null;
+}
+
+async function start() {
+  await refresh();
+  const params = new URLSearchParams(location.search);
+  const sharedText = params.get("url");
+  if (sharedText) {
+    const link = (sharedText.match(/https?:\/\/\S+/) || [sharedText.trim()])[0];
+    byId("targets").value = link;
+    const platform = platformForLink(link);
+    if (platform) {
+      selectedPlatform = platform;
+      renderTabs();
+      renderTypes();
+    }
+    updatePickButton();
+    params.delete("url");
+    const rest = params.toString();
+    history.replaceState(null, "", location.pathname + (rest ? "?" + rest : ""));
+  }
+}
+
+start();
 setInterval(() => refresh().catch(() => {}), 1000);
 </script>
 </body>

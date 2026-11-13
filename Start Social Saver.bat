@@ -9,7 +9,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-python -c "import flask, requests, webview, gallery_dl, yt_dlp" >nul 2>nul
+python -c "import flask, requests, webview, gallery_dl, yt_dlp, segno" >nul 2>nul
 if errorlevel 1 (
     echo First run: installing what Social Saver needs, please wait...
     python -m pip install --quiet -r requirements.txt

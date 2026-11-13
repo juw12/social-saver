@@ -3,3 +3,4 @@ yt-dlp
 pywebview>=6
 flask>=3
 requests
+segno

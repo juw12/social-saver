@@ -1,14 +1,19 @@
-"""Social Saver: one desktop app to save Instagram, Threads, X and TikTok media into zips.
+"""Social Saver: one app to save Instagram, Threads, X and TikTok media into zips.
 
-Run with:  python app.py
+Run with:  python app.py                 (Windows window; phones can join over Wi-Fi)
+           python app.py --serve         (no window, e.g. Termux on Android; opens the browser)
+           python app.py --save LINK...  (download now and exit; used by Android "Share")
 A small local web server drives the downloads; a pywebview window shows the UI.
 """
 from __future__ import annotations
 
+import argparse
+import hmac
 import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -18,10 +23,10 @@ from pathlib import Path
 from typing import Callable
 
 import requests
-from flask import Flask, Response, abort, jsonify, request
+from flask import Flask, Response, abort, jsonify, request, send_file
 from werkzeug.serving import make_server
 
-from saver import core, threads
+from saver import core, phone, threads
 
 APP_DIR = Path(__file__).resolve().parent
 ENGINE_COMMAND = [sys.executable, "-m", "gallery_dl"]
@@ -30,12 +35,24 @@ ENGINE_INFO_LINE = re.compile(r"^\[[\w.-]+\]\[(debug|info)\]")
 NO_CONSOLE_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PREVIEW_TIMEOUT_SECONDS = 180
 MAX_PICKER_ITEMS = 200
+STATIC_FILES = {
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "apple-touch-icon.png": "image/png",
+}
+LOCKED_PAGE = """<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Social Saver</title>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:30em;margin:12vh auto;padding:0 20px">
+<h1 style="font-size:22px">Social Saver</h1>
+<p>This is Social Saver running on a PC. To use it here, open Social Saver on the PC,
+turn on <b>Use on your phone</b> and scan the QR code with this phone.</p></body>"""
 
 
 class JobRunner:
     """Runs one background job at a time and keeps its progress for the UI."""
 
-    def __init__(self) -> None:
+    def __init__(self, echo: Callable[[str], None] | None = None) -> None:
+        self._echo = echo  # also print each log line (command-line use)
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._process: subprocess.Popen | None = None
@@ -51,7 +68,10 @@ class JobRunner:
         return self._cancel.is_set()
 
     def log(self, message: str) -> None:
-        self.log_lines.append(f"{time.strftime('%H:%M:%S')}  {message}")
+        line = f"{time.strftime('%H:%M:%S')}  {message}"
+        self.log_lines.append(line)
+        if self._echo:
+            self._echo(line)
 
     def start(self, work: Callable[[], None]) -> bool:
         with self._lock:
@@ -247,16 +267,31 @@ def update_engines(runner: JobRunner) -> None:
     runner.log("Download engines are up to date." if exit_code == 0 else "Update failed.")
 
 
-def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
-    """The local API. `desktop` supplies the native bits (sign-in window, folder picker)."""
+def same_secret(given: str | None, expected: str) -> bool:
+    return bool(given) and hmac.compare_digest(given.encode(), expected.encode())
+
+
+def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False,
+               phone_server: phone.PhoneServer | None = None) -> Flask:
+    """The local API.
+
+    `desktop` supplies the native bits (sign-in window, folder picker).
+    `remote` is the phone-facing copy: the page itself needs the phone key too.
+    `phone_server` lets the PC screen switch the phone server on and off.
+    """
     app = Flask(__name__)
     ui_html = (APP_DIR / "ui.html").read_text(encoding="utf-8")
+    mode = "phone" if remote else "desktop"
+
+    def has_key() -> bool:
+        return (same_secret(request.args.get("t"), token)
+                or same_secret(request.cookies.get(phone.KEY_COOKIE), token))
 
     @app.before_request
     def require_token():
-        if request.path.startswith("/api/") and request.headers.get("X-Token") != token:
+        if request.path.startswith("/api/") and not same_secret(request.headers.get("X-Token"), token):
             abort(403)
-        if request.path.startswith("/thumb/") and request.args.get("t") != token:
+        if request.path.startswith(("/thumb/", "/files/")) and not has_key():
             abort(403)
 
     @app.errorhandler(ValueError)
@@ -265,7 +300,69 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
 
     @app.get("/")
     def index():
-        return ui_html.replace("__TOKEN__", token)
+        key_in_link = request.args.get("k")
+        if remote and not (same_secret(key_in_link, token) or has_key()):
+            return Response(LOCKED_PAGE, status=403, mimetype="text/html")
+        page = Response(ui_html.replace("__TOKEN__", token).replace("__MODE__", mode),
+                        mimetype="text/html", headers={"Cache-Control": "no-store"})
+        if remote and same_secret(key_in_link, token):
+            page.set_cookie(phone.KEY_COOKIE, token, max_age=phone.KEY_COOKIE_DAYS * 86400,
+                            httponly=True, samesite="Lax")
+        return page
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        """Lets "Add to Home Screen" make a proper app icon (Android and iPhone)."""
+        return Response(json.dumps({
+            "name": "Social Saver",
+            "short_name": "Social Saver",
+            "display": "standalone",
+            "background_color": "#151614",
+            "theme_color": "#2f5d50",
+            "icons": [
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        }), mimetype="application/manifest+json")
+
+    @app.get("/static/<name>")
+    def static_file(name: str):
+        if name not in STATIC_FILES:
+            abort(404)
+        return send_file(APP_DIR / "static" / name, mimetype=STATIC_FILES[name], max_age=86400)
+
+    @app.get("/files/<name>")
+    def zip_download(name: str):
+        """One finished zip, so a phone can keep its own copy."""
+        output_dir = Path(core.load_settings()["output_dir"])
+        if Path(name).name != name or not name.endswith(".zip"):
+            abort(404)
+        zip_path = output_dir / name
+        if not zip_path.is_file():
+            abort(404)
+        return send_file(zip_path, mimetype="application/zip", as_attachment=True, download_name=name)
+
+    @app.route("/api/phone", methods=["GET", "POST"])
+    def phone_mode():
+        if phone_server is None:
+            abort(404)
+        if request.method == "POST":
+            body = request.get_json(force=True)
+            settings = phone.phone_settings()
+            if body.get("new_key"):
+                settings = phone.update_phone_settings(phone_key=secrets.token_urlsafe(18))
+                if phone_server.running:
+                    phone_server.restart(settings["phone_port"], settings["phone_key"])
+                runner.log("New phone key made. Phones have to scan the new QR code.")
+            elif "enabled" in body:
+                if body["enabled"]:
+                    phone_server.start(settings["phone_port"], settings["phone_key"])
+                    runner.log("Phone mode on.")
+                else:
+                    phone_server.stop()
+                    runner.log("Phone mode off.")
+                phone.update_phone_settings(phone_enabled=bool(body["enabled"]))
+        return jsonify(phone_server.status())
 
     @app.get("/api/state")
     def state():
@@ -281,6 +378,7 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
                     "label": spec["label"],
                     "types": spec["types"],
                     "beta": spec["beta"],
+                    "domains": spec["domains"],
                     "signed_in": core.is_signed_in(platform),
                 }
                 for platform, spec in core.PLATFORMS.items()
@@ -393,7 +491,7 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
         if platform not in core.PLATFORMS:
             raise ValueError("Unknown platform.")
         if desktop is None:
-            raise ValueError("Sign-in needs the desktop app window.")
+            raise ValueError("Sign in on the PC, or use 'Import cookies file' here.")
         desktop.open_signin(platform, runner.log)
         return jsonify(ok=True)
 
@@ -416,6 +514,8 @@ def create_app(runner: JobRunner, token: str, desktop=None) -> Flask:
 
     @app.post("/api/open-folder")
     def open_folder():
+        if desktop is None:
+            raise ValueError("Open the folder on the PC.")
         output_dir = Path(core.load_settings()["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
         os.startfile(output_dir)  # noqa: S606 - opens the user's own download folder
@@ -510,7 +610,51 @@ class Desktop:
         threading.Thread(target=watch, daemon=True).start()
 
 
-def main() -> None:
+def save_now(links: list[str], platform: str | None) -> int:
+    """Download links (or usernames) right away and print the log; for Android "Share"."""
+    core.data_home().mkdir(parents=True, exist_ok=True)
+    runner = JobRunner(echo=print)
+    try:
+        targets = [core.parse_target(core.extract_link(link), platform or "instagram") for link in links]
+    except ValueError as error:
+        print(f"Cannot save that: {error}")
+        return 2
+    download_targets(runner, targets, {}, None)
+    print(f"Saved {runner.downloaded} new file(s) to {core.load_settings()['output_dir']}")
+    return 0
+
+
+def open_in_browser(url: str) -> None:
+    opener = shutil.which("termux-open-url")
+    if opener:
+        subprocess.run([opener, url], check=False)
+    else:
+        import webbrowser
+
+        webbrowser.open(url)
+
+
+def serve(host: str, port: int) -> None:
+    """No window: serve the screen to a browser (Termux on Android, Linux, Mac, a home server)."""
+    core.data_home().mkdir(parents=True, exist_ok=True)
+    key = phone.phone_settings()["phone_key"]
+    runner = JobRunner()
+    server = make_server(host, port, create_app(runner, key, remote=True), threaded=True)
+    reachable_host = phone.lan_address() if host in ("0.0.0.0", "") else host
+    url = phone.phone_url(reachable_host, server.server_port, key)
+    print(f"Social Saver is running. Open this link (keep it private):\n  {url}")
+    if reachable_host != "127.0.0.1":
+        phone.print_qr(url)
+    print("Press Ctrl+C to stop.")
+    if host == "127.0.0.1":
+        open_in_browser(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        runner.cancel()
+
+
+def run_desktop() -> None:
     import logging
 
     import webview
@@ -519,8 +663,17 @@ def main() -> None:
     core.data_home().mkdir(parents=True, exist_ok=True)
     runner = JobRunner()
     desktop = Desktop(webview)
+    phone_server = phone.PhoneServer(lambda key: create_app(runner, key, remote=True))
+    settings = phone.phone_settings()
+    if settings["phone_enabled"]:
+        try:
+            phone_server.start(settings["phone_port"], settings["phone_key"])
+        except ValueError as error:
+            runner.log(f"Phone mode could not start: {error}")
     token = secrets.token_urlsafe(24)
-    server = make_server("127.0.0.1", 0, create_app(runner, token, desktop), threaded=True)
+    server = make_server(
+        "127.0.0.1", 0, create_app(runner, token, desktop, phone_server=phone_server), threaded=True,
+    )
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
     desktop.main_window = webview.create_window(
@@ -532,11 +685,32 @@ def main() -> None:
     )
     webview.start()
     runner.cancel()
+    phone_server.stop()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Save Instagram, Threads, X and TikTok media into zips.")
+    parser.add_argument("--serve", action="store_true",
+                        help="no window: show the screen in a browser (Termux on Android, Linux, Mac)")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="with --serve: 0.0.0.0 lets phones on the same Wi-Fi in (default: this device only)")
+    parser.add_argument("--port", type=int, default=phone.DEFAULT_PORT, help="with --serve (default 8765)")
+    parser.add_argument("--save", nargs="+", metavar="LINK", help="download these links or usernames now, then exit")
+    parser.add_argument("--platform", choices=sorted(core.PLATFORMS),
+                        help="with --save: platform for plain usernames (default instagram)")
+    args = parser.parse_args(argv)
+    if args.save:
+        return save_now(args.save, args.platform)
+    if args.serve:
+        serve(args.host, args.port)
+        return 0
+    run_desktop()
+    return 0
 
 
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main())
     except Exception:
         import traceback
 

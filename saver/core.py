@@ -60,6 +60,8 @@ PLATFORMS = {
 
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,40}$")
 NOT_A_PROFILE = {"explore", "home", "i", "foryou", "following", "search", "reels", "login"}
+SHORT_LINK_HOSTS = {"vt.tiktok.com", "vm.tiktok.com"}  # share links: /<code>/ is one post, not a user
+LINK_IN_TEXT = re.compile(r"https?://[^\s<>\"']+")
 NETSCAPE_HTTPONLY_PREFIX = "#HttpOnly_"
 THUMBNAIL_KEYS = ("display_url", "thumbnail", "thumbnail_url", "cover", "origin_cover", "image")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
@@ -107,8 +109,16 @@ def data_home() -> Path:
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "SocialSaver"
 
 
+def is_termux() -> bool:
+    """Running inside Termux on an Android phone."""
+    return "com.termux" in os.environ.get("PREFIX", "")
+
+
 def default_output_dir() -> Path:
-    if Path("E:/").exists():
+    phone_downloads = Path.home() / "storage" / "downloads"
+    if is_termux() and phone_downloads.exists():
+        return phone_downloads / "SocialSaver"
+    if os.name == "nt" and Path("E:/").exists():
         return Path("E:/SocialSaver")
     return Path.home() / "Downloads" / "SocialSaver"
 
@@ -141,6 +151,12 @@ def platform_for_host(host: str) -> str | None:
     return None
 
 
+def extract_link(text: str) -> str:
+    """The first link in shared text ("Look at this! https://..."), or the text itself."""
+    match = LINK_IN_TEXT.search(text)
+    return match.group(0).rstrip(".,!?)") if match else text.strip()
+
+
 def parse_target(text: str, default_platform: str) -> Target:
     """Turn "natgeo", "@natgeo", a profile link or a post link into a Target."""
     text = text.strip()
@@ -156,7 +172,8 @@ def parse_target(text: str, default_platform: str) -> Target:
         raise ValueError(f"'{text}' is not an Instagram, Threads, X or TikTok link")
 
     segments = [segment for segment in parsed.path.split("/") if segment]
-    if len(segments) == 1 and segments[0].lower() not in NOT_A_PROFILE:
+    is_short_link = (parsed.hostname or "").lower() in SHORT_LINK_HOSTS
+    if len(segments) == 1 and segments[0].lower() not in NOT_A_PROFILE and not is_short_link:
         username = segments[0].lstrip("@")
         if USERNAME_PATTERN.match(username):
             return Target(platform, username=username)

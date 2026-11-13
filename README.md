@@ -1,7 +1,8 @@
 ﻿# Social Saver
 
-One small Windows app to save posts, reels, videos, stories and highlights from
-Instagram, Threads, X and TikTok. You pick the types you want. Everything lands
+One small app to save posts, reels, videos, stories and highlights from
+Instagram, Threads, X and TikTok. Runs on Windows, and you can use it from an
+Android phone or an iPhone too. You pick the types you want. Everything lands
 in one zip per account, sorted into folders. Run it again and it only adds what
 is new.
 
@@ -26,6 +27,40 @@ You need Python 3.10 or newer on the PC.
 
 **Only some photos of one post?** Paste a single post link and press **Choose items...**.
 You get a grid of thumbnails; untick what you don't want and press **Save selected**.
+
+## Use it on your phone (Android or iPhone)
+
+**Phone + PC (Android and iPhone):** in the app on the PC, turn on **Use on your phone**
+(bottom card) and scan the QR code with the phone camera. The phone and PC must be on
+the same Wi-Fi. The phone shows the same screen; the PC does the downloading. Tap a
+zip in "Your zips" to keep a copy on the phone.
+
+- Keep it as an app: iPhone Safari Share > **Add to Home Screen**; Android Chrome
+  menu > **Add to Home screen**.
+- The first time, Windows may ask whether Python may use the network: allow
+  **Private networks**.
+- Only phones that scanned the QR code get in (the link carries a private key).
+  **New key** locks out every phone that scanned before.
+- Sign in on the PC. On the phone you can also use **Import cookies file**.
+- **iPhone share button (optional):** in the Shortcuts app make a shortcut that
+  receives URLs from the Share Sheet, then *URL Encode* the input and *Open URLs*
+  `http://<link from the QR code>&url=<encoded input>`. Sharing a post to it opens
+  Social Saver with the link already filled in.
+
+**Android on its own (no PC):** install [Termux](https://f-droid.org/packages/com.termux/)
+(from F-Droid or GitHub, not the old Play Store build) and run:
+
+```
+curl -fsSL https://raw.githubusercontent.com/juw12/social-saver/main/mobile/termux-setup.sh | bash
+```
+
+Then **share** any Instagram, Threads, X or TikTok post or profile **to Termux** and it
+is saved to `Download/SocialSaver` on the phone. Or type `social-saver` in Termux to open
+the full screen in the phone browser. If sharing to Termux does nothing, allow Termux
+"Display over other apps" in Android settings.
+
+**iPhone on its own:** not possible. iOS stops background apps and Apple does not
+allow downloader apps, so on an iPhone use the "Phone + PC" way above.
 
 ## Where the files go
 
@@ -96,11 +131,15 @@ duplicates.
 ```
 python -m pytest -q      # no network needed; CI runs them on Windows + Linux
 python app.py            # run with a console
+python app.py --serve    # no window: open the screen in a browser (add --host 0.0.0.0 for phones)
+python app.py --save <link or text with a link>   # save now and exit (Android "Share")
 ```
 
 - `app.py` - window, local API, job runner
 - `saver/core.py` - link parsing, engine config, zip sorting, duplicate check
 - `saver/threads.py` - Threads reader (beta)
+- `saver/phone.py` - phone mode: key, QR code, the Wi-Fi server
+- `mobile/termux-setup.sh` - Android setup (Termux)
 - `ui.html` - the screen
 - `tests/` - uses a fake engine, so tests never touch the real sites
 
