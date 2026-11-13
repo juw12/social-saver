@@ -118,6 +118,7 @@
     text-transform: capitalize;
   }
   .chip:has(input:checked) { border-color: var(--accent); background: var(--soft); }
+  .chip.on { border-color: var(--accent); background: var(--soft); }
   .chip input { accent-color: var(--accent); margin: 0; }
   button.primary, button.plain {
     font: inherit;
@@ -184,6 +185,7 @@
     background: var(--soft);
   }
   .tile:has(input:checked) { border-color: var(--accent); }
+  .tile.on { border-color: var(--accent); }
   .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .tile .stand-in {
     display: flex;
@@ -349,6 +351,28 @@ let lastLogLength = -1;
 
 const byId = (id) => document.getElementById(id);
 
+// Works on old Android WebViews too (Element.replaceChildren needs Chromium 86+).
+function clearChildren(element) {
+  while (element.firstChild) {
+    element.removeChild(element.firstChild);
+  }
+}
+
+// Highlight ticked chips and tiles without CSS :has() (Chromium 105+).
+function markChecked(container) {
+  container.querySelectorAll(".chip, .tile").forEach((label) => {
+    const box = label.querySelector("input");
+    label.classList.toggle("on", Boolean(box && box.checked));
+  });
+}
+
+document.addEventListener("change", (event) => {
+  const label = event.target.closest && event.target.closest(".chip, .tile");
+  if (label) {
+    label.classList.toggle("on", event.target.checked);
+  }
+});
+
 async function api(path, body) {
   const response = await fetch("/api/" + path, {
     method: body === undefined ? "GET" : "POST",
@@ -378,7 +402,7 @@ function currentPlatform() {
 
 function renderTabs() {
   const tabs = byId("tabs");
-  tabs.replaceChildren();
+  clearChildren(tabs);
   for (const platform of state.platforms) {
     const tab = document.createElement("button");
     tab.className = "tab" + (platform.id === selectedPlatform ? " selected" : "");
@@ -415,7 +439,7 @@ function renderTypes() {
   }
   const ticked = tickedTypes[platform.id];
   const chips = byId("types");
-  chips.replaceChildren();
+  clearChildren(chips);
   for (const type of platform.types) {
     const chip = document.createElement("label");
     chip.className = "chip";
@@ -427,6 +451,7 @@ function renderTypes() {
     chip.append(box, usesMixedMedia && TYPE_LABELS[type] ? TYPE_LABELS[type] : type);
     chips.append(chip);
   }
+  markChecked(chips);
 }
 
 function renderJob() {
@@ -452,7 +477,7 @@ function renderJob() {
 function renderZips() {
   byId("outputDir").textContent = "Saved in " + state.output_dir;
   const list = byId("zips");
-  list.replaceChildren();
+  clearChildren(list);
   if (!state.zips.length) {
     const empty = document.createElement("li");
     empty.textContent = "No zips yet.";
@@ -532,7 +557,7 @@ function updatePickButton() {
 
 function closePicker() {
   byId("picker").hidden = true;
-  byId("pickerGrid").replaceChildren();
+  clearChildren(byId("pickerGrid"));
 }
 
 function pickedIndexes() {
@@ -548,7 +573,7 @@ function updatePickerTitle() {
 
 function renderPicker(preview) {
   const grid = byId("pickerGrid");
-  grid.replaceChildren();
+  clearChildren(grid);
   for (const item of preview.items) {
     const tile = document.createElement("label");
     tile.className = "tile";
@@ -574,6 +599,7 @@ function renderPicker(preview) {
     grid.append(tile);
   }
   byId("picker").hidden = false;
+  markChecked(grid);
   updatePickerTitle();
 }
 
@@ -604,10 +630,12 @@ byId("pickButton").onclick = async () => {
 };
 byId("pickAll").onclick = () => {
   byId("pickerGrid").querySelectorAll("input").forEach((box) => (box.checked = true));
+  markChecked(byId("pickerGrid"));
   updatePickerTitle();
 };
 byId("pickNone").onclick = () => {
   byId("pickerGrid").querySelectorAll("input").forEach((box) => (box.checked = false));
+  markChecked(byId("pickerGrid"));
   updatePickerTitle();
 };
 byId("closePicker").onclick = closePicker;
@@ -716,6 +744,7 @@ function platformForLink(link) {
 
 async function start() {
   await refresh();
+  console.log("SOCIAL_SAVER_UI_READY " + state.platforms.length + " platforms");
   const params = new URLSearchParams(location.search);
   // ?url= from the iPhone Shortcut or the Android app; text/title from the web app's share target
   const sharedText = params.get("url") || params.get("text") || params.get("title");

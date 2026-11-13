@@ -193,3 +193,13 @@ def test_screen_has_the_android_sign_in_bridge():
     ui = Path(social_saver.__file__).with_name("ui.html").read_text(encoding="utf-8")
     assert "window.SocialSaverAndroid.signIn(" in ui
     assert "window.socialSaverCookiesFromApp" in ui
+
+
+def test_ui_runs_on_old_android_webviews():
+    """Android 10/11 phones can have an old WebView (Chromium 80s): no replaceChildren, no :has()."""
+    ui = (Path(__file__).resolve().parent.parent / "ui.html").read_text(encoding="utf-8")
+    assert ".replaceChildren(" not in ui
+    for selector in (".chip", ".tile"):
+        if selector + ":has(" in ui:
+            assert selector + ".on" in ui, selector + " needs a class fallback for :has()"
+    assert "SOCIAL_SAVER_UI_READY" in ui

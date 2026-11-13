@@ -11,6 +11,7 @@ import android.text.Html
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -49,6 +50,11 @@ class MainActivity : Activity() {
             }
         }
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                Log.i(TAG, "console: ${message.message()} (line ${message.lineNumber()})")
+                return true
+            }
+
             override fun onShowFileChooser(
                 view: WebView,
                 callback: ValueCallback<Array<Uri>>,
