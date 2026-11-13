@@ -211,6 +211,26 @@ def friendly_error(message: str, platform: str) -> str:
     return hint or f"{label}: {message}"
 
 
+NESTED_COVER_KEYS = ("cover", "originCover", "thumbnail", "dynamicCover", "poster")
+
+
+def find_thumbnail(metadata: dict, file_url: str) -> str | None:
+    """A picture for the tile: the usual keys, else a cover inside the video details
+    (TikTok keeps its covers in post["video"])."""
+    thumb = core.thumbnail_for(metadata, file_url)
+    if thumb:
+        return thumb
+    for nested_key in ("video", "media", "imagePost"):
+        nested = metadata.get(nested_key)
+        if not isinstance(nested, dict):
+            continue
+        for key in NESTED_COVER_KEYS:
+            value = nested.get(key)
+            if isinstance(value, str) and value.startswith("http"):
+                return value
+    return None
+
+
 # ---------------------------------------------------------------- listing with gallery-dl
 
 def _request_headers(session: requests.Session, url: str, extra: dict | None) -> dict:
@@ -239,7 +259,7 @@ def gallery_dl_lister(url: str, file_filter: str | None, start: int, count: int,
             if file_url.startswith(("ytdl:", "text:")):
                 return
             session = self.extractor.session
-            thumb = core.thumbnail_for(kwdict, file_url)
+            thumb = find_thumbnail(kwdict, file_url)
             found.put({
                 "url": file_url,
                 "meta": json.loads(json.dumps(self.filter(kwdict), default=str)),

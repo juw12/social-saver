@@ -39,10 +39,13 @@ for query in ("tiktok", "https://www.tiktok.com/@scout2015/video/671833539084509
           f"{response.headers.get('Content-Disposition')}")
     if response.status_code != 200 or len(body) < 20_000 or not looks_like_media(body):
         failures.append(f"file download failed for {query}")
-    if first["thumb"]:
+    if not first["thumb"]:
+        failures.append(f"no thumbnail for {query}")
+    else:
         thumb = client.get("/api/file?t=" + first["thumb"])
-        print(f"  thumbnail: HTTP {thumb.status_code}, {len(thumb.get_data())} bytes")
-        if thumb.status_code != 200:
+        picture = thumb.get_data()
+        print(f"  thumbnail: HTTP {thumb.status_code}, {len(picture)} bytes, {thumb.headers.get('Content-Type')}")
+        if thumb.status_code != 200 or len(picture) < 1000:
             failures.append(f"thumbnail failed for {query}")
     if len(items) >= 2:
         archive_response = client.post("/api/zip", data={"t": [item["file"] for item in items[:2]], "name": "live"})

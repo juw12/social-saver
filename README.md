@@ -31,13 +31,47 @@ You get a grid of thumbnails; untick what you don't want and press **Save select
 
 ## Use it on your phone (Android or iPhone)
 
-Three ways. Pick one:
+Four ways. Pick one:
 
 | Way | Phones | Needs a PC? |
 |-----|--------|-------------|
+| [Web downloader](#web-downloader-free-no-card) | iPhone, Android, any browser | no (free Vercel, no card) |
 | [Android app](#android-app-no-pc) | Android 10+ | no |
-| [Your own web app](#web-app-iphone-and-android-no-pc) | iPhone and Android | no (free cloud server) |
+| [Full web app](#full-web-app-render) | iPhone and Android | no (Render, may ask for a card) |
 | [Phone + PC](#phone--pc-same-wi-fi) | iPhone and Android | yes, same Wi-Fi |
+
+### Web downloader (free, no card)
+
+Like the downloader sites: type a username (or paste a post link), see the posts as
+pictures, tick what you want and download it - one file, or a zip of everything you
+ticked. It runs on your own free [Vercel](https://vercel.com) address (Hobby plan, sign in
+with GitHub, **no credit card**). One-time setup, about 3 minutes:
+
+1. Press **[Deploy to Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fjuw12%2Fsocial-saver&project-name=social-saver&repository-name=social-saver-web&env=SOCIAL_SAVER_PASSWORD&envDescription=A%20password%20only%20you%20know%20(the%20page%20asks%20for%20it))**
+   and sign in with GitHub. (Own this repo already? Use *Add New > Project > Import*
+   on it instead; then every update here redeploys by itself.)
+2. Vercel asks for **SOCIAL_SAVER_PASSWORD**: type a password only you know, so nobody
+   else can use your copy. Press **Deploy** and wait about a minute.
+3. Open your address (like `https://social-saver-xxxx.vercel.app`) on the phone, type the
+   password, then Safari Share > **Add to Home Screen** to keep it as an app.
+
+How to use it: pick **TikTok**, **Instagram** or **X**, type the username, **Search**.
+Thumbnails appear as they are found (24 at a time, **Load more** for older posts). Tap
+pictures to tick them and press **Download**; the arrow under a picture saves just that
+one, **View** shows it big. On iPhone the files land in Files > Downloads (open a photo
+or video there and Share > Save to Photos).
+
+Honest limits (tested from a cloud server, the same kind Vercel uses):
+
+- **TikTok works without signing in** (public accounts and single videos).
+- **Instagram and X do not show posts to a server that is not signed in.** Open
+  *Sign-in cookies* on the page and paste your cookies once: on a computer, sign in to the
+  site, use the free **Cookie-Editor** browser extension > Export > JSON, and paste it (or
+  load the exported file). They stay in that browser only and go along with each search;
+  the server keeps nothing.
+- Threads is not in the web version (use the Android app or PC).
+- Download links expire after a few hours; search again for fresh ones. One search can run
+  up to 5 minutes (Vercel's free limit), so very large accounts load page by page.
 
 ### Android app (no PC)
 
@@ -54,13 +88,14 @@ Three ways. Pick one:
 - Zips go to **Download/SocialSaver** on the phone (tap a zip in "Your zips").
 - Updates: download the newer APK and install it over the old one; sign-ins stay.
 
-### Web app (iPhone and Android, no PC)
+### Full web app (Render)
 
-Your own private copy on a free cloud server ([Render](https://render.com)). One-time
-setup, about 5 minutes:
+The complete app (whole-account zips, history) on a [Render](https://render.com) server.
+Render may ask for a card even for the free plan; if it does, use the
+[web downloader](#web-downloader-free-no-card) above instead. One-time setup, about 5 minutes:
 
 1. Press **[Deploy to Render](https://render.com/deploy?repo=https://github.com/juw12/social-saver)**
-   and sign in to Render with your GitHub account (free plan, no card needed for it).
+   and sign in to Render with your GitHub account.
 2. Render asks for **SOCIAL_SAVER_PASSWORD**: type a password only you know. Press
    **Deploy** and wait until it says *Live* (first build takes a few minutes).
 3. Open your address (like `https://social-saver-xxxx.onrender.com`) on the phone and
@@ -192,6 +227,8 @@ SOCIAL_SAVER_PASSWORD=... python app.py --serve --host 0.0.0.0   # web app mode 
 - `android/` - Android app (Kotlin WebView + Python via Chaquopy); `android/sync.sh` copies
   the Python app in, CI builds the APK and starts it on an emulator
 - `Dockerfile`, `render.yaml` - the web app (Render blueprint)
+- `saver/webdl.py`, `web/index.html`, `api/index.py`, `vercel.json` - the web downloader (Vercel);
+  run it locally with `python -m saver.webdl`
 - `mobile/termux-setup.sh` - Android setup (Termux)
 - `ui.html` - the screen
 - `tests/` - uses a fake engine, so tests never touch the real sites

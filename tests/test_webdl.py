@@ -101,6 +101,13 @@ def test_tiktok_item_gets_a_readable_name_link_and_caption():
     assert webdl.unseal(item["thumb"])["i"] == 1
 
 
+def test_tiktok_video_cover_is_used_as_the_thumbnail():
+    metadata = {"extension": "mp4", "video": {"cover": "https://p16.tiktokcdn.example/c.jpeg", "duration": 9}}
+    assert webdl.find_thumbnail(metadata, "https://v16.example/v.mp4") == "https://p16.tiktokcdn.example/c.jpeg"
+    assert webdl.find_thumbnail({"extension": "mp4"}, "https://v16.example/v.mp4") is None
+    assert webdl.find_thumbnail({"extension": "jpg"}, "https://cdn.example/p.jpg") == "https://cdn.example/p.jpg"
+
+
 def test_instagram_carousel_and_x_names():
     instagram = {"url": "https://scontent.cdninstagram.com/v/p.jpg?x=1",
                  "meta": {"username": "natgeo", "post_shortcode": "DAqzT8PNTmA", "num": 2, "extension": "jpg"}}
