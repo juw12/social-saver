@@ -8,3 +8,4 @@ android/app/build/
 android/local.properties
 android/app/src/main/python/
 android/app/src/main/assets/web/
+.vercel/

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#2f5d50">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Social Saver">
+<title>Social Saver</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="/static/icon-192.png">
+<style>
+  :root {
+    --page: #f5f3ee; --card: #ffffff; --ink: #1d1c1a; --muted: #6d6a63; --line: #e2ded5;
+    --accent: #2f5d50; --accent-ink: #ffffff; --soft: #eef3f0; --warn: #a2541a; --ok: #2f8f5b;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #151614; --card: #1e201d; --ink: #ecebe6; --muted: #9a988f; --line: #30332e;
+      --accent: #7fc4a8; --accent-ink: #10211b; --soft: #242a26; --warn: #e0a063; --ok: #7fd3a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 18px 16px 120px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  header img { width: 34px; height: 34px; border-radius: 8px; }
+  header h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  header small { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+  .tabs button, .chips button {
+    border: 1px solid var(--line); background: var(--page); color: var(--ink);
+    border-radius: 10px; padding: 10px 6px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .tabs button[aria-pressed="true"], .chips button[aria-pressed="true"] {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+  }
+  form.search { display: flex; gap: 8px; }
+  input[type="text"], input[type="password"], textarea {
+    width: 100%; font: inherit; color: var(--ink); background: var(--page);
+    border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px;
+  }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.primary {
+    border: 0; background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 700;
+    border-radius: 10px; padding: 11px 16px; cursor: pointer; white-space: nowrap;
+  }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  button.plain {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit;
+    border-radius: 10px; padding: 9px 12px; cursor: pointer;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chips button { padding: 6px 12px; font-weight: 500; font-size: 14px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .status { margin: 14px 2px 8px; min-height: 22px; font-size: 14px; color: var(--muted); }
+  .status.error { color: var(--warn); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tile { position: relative; background: var(--card); border: 2px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .tile.on { border-color: var(--accent); }
+  .tile .pic { display: block; width: 100%; aspect-ratio: 1; background: var(--soft); object-fit: cover; border: 0; padding: 0; cursor: pointer; }
+  .tile .pic.empty { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .tile .tick {
+    position: absolute; top: 8px; left: 8px; width: 26px; height: 26px; border-radius: 50%;
+    background: rgba(0,0,0,0.45); border: 2px solid #fff; color: #fff; font-size: 15px; line-height: 22px; text-align: center;
+    pointer-events: none;
+  }
+  .tile.on .tick { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .tile .badge { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #fff; font-size: 12px; padding: 2px 7px; border-radius: 6px; pointer-events: none; }
+  .tile .meta { display: flex; align-items: center; gap: 6px; padding: 7px 8px; font-size: 12px; color: var(--muted); }
+  .tile .meta span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tile .meta a { color: var(--accent); text-decoration: none; font-weight: 700; font-size: 13px; padding: 2px 4px; }
+  .more { display: flex; justify-content: center; margin: 16px 0; }
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line);
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); display: none;
+  }
+  .bar.show { display: block; }
+  .bar .inner { max-width: 980px; margin: 0 auto; display: flex; gap: 8px; align-items: center; }
+  .bar .count { flex: 1; font-size: 14px; color: var(--muted); }
+  details.panel { margin-top: 14px; }
+  details.panel summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+  details.panel .rows { display: grid; gap: 10px; margin-top: 10px; }
+  details.panel label { font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  details.panel label em { font-style: normal; font-weight: 500; font-size: 12px; color: var(--ok); }
+  textarea { min-height: 70px; font-size: 13px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .row-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .row-actions .plain { padding: 6px 10px; font-size: 13px; }
+  .gate { max-width: 380px; margin: 60px auto; }
+  .gate form { display: grid; gap: 10px; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 26px; }
+  footer a { color: inherit; }
+  .viewer { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: none; align-items: center; justify-content: center; z-index: 10; padding: 20px; }
+  .viewer.show { display: flex; }
+  .viewer img, .viewer video { max-width: 100%; max-height: 80vh; border-radius: 8px; }
+  .viewer .close { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="/static/icon-192.png" alt="">
+    <div>
+      <h1>Social Saver</h1>
+      <small>Type a username or paste a link, pick, download.</small>
+    </div>
+  </header>
+
+  <section class="card gate" id="gate" hidden>
+    <form id="gate-form">
+      <strong>This Social Saver is private.</strong>
+      <input type="password" id="gate-password" placeholder="Password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Open</button>
+      <p class="hint" id="gate-message"></p>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card">
+      <div class="tabs" role="group" aria-label="Platform" id="tabs"></div>
+      <form class="search" id="search-form">
+        <input type="text" id="query" placeholder="Username or link" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search" required>
+        <button class="primary" type="submit" id="search-button">Search</button>
+      </form>
+      <div class="chips" role="group" aria-label="What to show" id="kinds"></div>
+      <p class="hint" id="platform-hint"></p>
+    </section>
+
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <div class="grid" id="grid"></div>
+    <div class="more"><button class="plain" type="button" id="more" hidden>Load more</button></div>
+
+    <details class="panel card" id="cookie-panel">
+      <summary>Sign-in cookies (Instagram and X need these)</summary>
+      <p class="hint">Instagram and X only show posts to signed-in users when the request comes from a server.
+        On a computer, sign in to the site, open the free <b>Cookie-Editor</b> browser extension, choose
+        <b>Export &rarr; JSON</b> (or Netscape), and paste it here. It stays in this browser only and is sent
+        with your searches; nothing is saved on the server. TikTok works without cookies.</p>
+      <div class="rows" id="cookie-rows"></div>
+    </details>
+
+    <footer>
+      Download only what you have the right to keep. Links expire after a few hours.
+      <a href="https://github.com/juw12/social-saver" rel="noopener">Source &amp; other apps</a>
+    </footer>
+  </div>
+</main>
+
+<div class="bar" id="bar">
+  <div class="inner">
+    <button class="plain" type="button" id="select-all">Select all</button>
+    <span class="count" id="count">0 picked</span>
+    <button class="primary" type="button" id="download">Download</button>
+  </div>
+</div>
+
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="Preview">
+  <button class="plain close" type="button" id="viewer-close">Close</button>
+  <div id="viewer-body"></div>
+</div>
+
+<form id="zip-form" method="post" action="/api/zip" hidden></form>
+
+<script>
+"use strict";
+(function () {
+  var PLATFORM_HINTS = {
+    instagram: "Instagram: add your cookies below first (Instagram blocks servers that are not signed in).",
+    x: "X: add your cookies below first (X needs a signed-in account).",
+    tiktok: "TikTok works without signing in. Private accounts need cookies."
+  };
+  var KIND_LABELS = { posts: "Posts", reels: "Reels", stories: "Stories", highlights: "Highlights", media: "Photos & videos", videos: "Videos & photos" };
+  var state = {
+    info: null, platform: localStorage.getItem("ss.platform") || "tiktok", kind: null,
+    query: "", next: 1, items: [], picked: {}, controller: null
+  };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function clearChildren(node) { while (node.firstChild) { node.removeChild(node.firstChild); } }
+  function password() { return localStorage.getItem("ss.password") || ""; }
+  function cookiesFor(platform) { return localStorage.getItem("ss.cookies." + platform) || ""; }
+  function setStatus(text, isError) {
+    var node = $("status");
+    node.textContent = text || "";
+    node.className = "status" + (isError ? " error" : "");
+  }
+  function fileUrl(token) { return "/api/file?t=" + encodeURIComponent(token); }
+
+  function renderTabs() {
+    var tabs = $("tabs");
+    clearChildren(tabs);
+    Object.keys(state.info.platforms).forEach(function (platform) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.textContent = state.info.platforms[platform].label;
+      button.setAttribute("aria-pressed", String(platform === state.platform));
+      button.addEventListener("click", function () {
+        state.platform = platform;
+        state.kind = null;
+        localStorage.setItem("ss.platform", platform);
+        renderTabs();
+      });
+      tabs.appendChild(button);
+    });
+    var kinds = state.info.platforms[state.platform].kinds;
+    if (!state.kind || kinds.indexOf(state.kind) < 0) { state.kind = kinds[0]; }
+    var chips = $("kinds");
+    clearChildren(chips);
+    if (kinds.length > 1) {
+      kinds.forEach(function (kind) {
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.textContent = KIND_LABELS[kind] || kind;
+        chip.setAttribute("aria-pressed", String(kind === state.kind));
+        chip.addEventListener("click", function () { state.kind = kind; renderTabs(); });
+        chips.appendChild(chip);
+      });
+    }
+    var hint = PLATFORM_HINTS[state.platform];
+    if (state.platform !== "tiktok" && cookiesFor(state.platform)) { hint = state.info.platforms[state.platform].label + ": using your saved cookies."; }
+    $("platform-hint").textContent = hint + " A link to one post also works.";
+  }
+
+  function renderCookieRows() {
+    var rows = $("cookie-rows");
+    clearChildren(rows);
+    Object.keys(state.info.platforms).forEach(function (platform) {
+      var wrap = document.createElement("div");
+      var label = document.createElement("label");
+      label.textContent = state.info.platforms[platform].label;
+      var saved = document.createElement("em");
+      saved.textContent = cookiesFor(platform) ? "saved" : "";
+      label.appendChild(saved);
+      var box = document.createElement("textarea");
+      box.placeholder = "Paste the exported cookies (JSON or cookies.txt)";
+      box.value = cookiesFor(platform);
+      var actions = document.createElement("div");
+      actions.className = "row-actions";
+      var save = document.createElement("button");
+      save.type = "button"; save.className = "plain"; save.textContent = "Save";
+      save.addEventListener("click", function () {
+        localStorage.setItem("ss.cookies." + platform, box.value.trim());
+        saved.textContent = box.value.trim() ? "saved" : "";
+        renderTabs();
+      });
+      var file = document.createElement("input");
+      file.type = "file"; file.accept = ".txt,.json,text/plain,application/json"; file.hidden = true;
+      file.addEventListener("change", function () {
+        if (!file.files || !file.files[0]) { return; }
+        var reader = new FileReader();
+        reader.onload = function () { box.value = String(reader.result || ""); save.click(); };
+        reader.readAsText(file.files[0]);
+      });
+      var pick = document.createElement("button");
+      pick.type = "button"; pick.className = "plain"; pick.textContent = "Load file";
+      pick.addEventListener("click", function () { file.click(); });
+      var clear = document.createElement("button");
+      clear.type = "button"; clear.className = "plain"; clear.textContent = "Remove";
+      clear.addEventListener("click", function () { box.value = ""; save.click(); });
+      actions.appendChild(save); actions.appendChild(pick); actions.appendChild(clear); actions.appendChild(file);
+      wrap.appendChild(label); wrap.appendChild(box); wrap.appendChild(actions);
+      rows.appendChild(wrap);
+    });
+  }
+
+  function updateBar() {
+    var picked = Object.keys(state.picked).length;
+    $("bar").className = "bar" + (state.items.length ? " show" : "");
+    $("count").textContent = picked + " of " + state.items.length + " picked";
+    $("download").disabled = picked === 0;
+    $("download").textContent = picked > 1 ? "Download " + picked + " (zip)" : "Download";
+    $("select-all").textContent = picked === state.items.length && picked > 0 ? "Select none" : "Select all";
+  }
+
+  function togglePick(item, tile) {
+    if (state.picked[item.index]) { delete state.picked[item.index]; } else { state.picked[item.index] = item; }
+    tile.className = "tile" + (state.picked[item.index] ? " on" : "");
+    tile.querySelector(".tick").textContent = state.picked[item.index] ? "\u2713" : "";
+    updateBar();
+  }
+
+  function showViewer(item) {
+    var body = $("viewer-body");
+    clearChildren(body);
+    var media;
+    if (item.video) {
+      media = document.createElement("video");
+      media.controls = true; media.playsInline = true; media.autoplay = true;
+      media.src = fileUrl(item.file) + "&inline=1";
+    } else {
+      media = document.createElement("img");
+      media.alt = item.name;
+      media.src = fileUrl(item.file) + "&inline=1";
+    }
+    body.appendChild(media);
+    var save = document.createElement("p");
+    var link = document.createElement("a");
+    link.href = fileUrl(item.file); link.className = "primary"; link.textContent = "Download this";
+    link.style.cssText = "display:inline-block;margin-top:12px;color:#fff;font-weight:700";
+    save.appendChild(link);
+    body.appendChild(save);
+    $("viewer").className = "viewer show";
+  }
+  function hideViewer() {
+    $("viewer").className = "viewer";
+    clearChildren($("viewer-body"));
+  }
+
+  function addTile(item) {
+    state.items.push(item);
+    var tile = document.createElement("div");
+    tile.className = "tile";
+    var picture;
+    if (item.thumb) {
+      picture = document.createElement("img");
+      picture.loading = "lazy";
+      picture.alt = item.text || item.name;
+      picture.src = fileUrl(item.thumb);
+      picture.className = "pic";
+    } else {
+      picture = document.createElement("div");
+      picture.className = "pic empty";
+      picture.textContent = item.video ? "Video" : "Photo";
+    }
+    picture.setAttribute("role", "button");
+    picture.setAttribute("tabindex", "0");
+    picture.setAttribute("aria-label", "Pick " + item.name);
+    picture.addEventListener("click", function () { togglePick(item, tile); });
+    picture.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); togglePick(item, tile); }
+    });
+    var tick = document.createElement("div");
+    tick.className = "tick";
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    var caption = document.createElement("span");
+    caption.textContent = item.date || item.text || item.name;
+    caption.title = item.text || item.name;
+    var view = document.createElement("a");
+    view.href = "#"; view.textContent = "View"; view.setAttribute("aria-label", "View " + item.name);
+    view.addEventListener("click", function (event) { event.preventDefault(); showViewer(item); });
+    var download = document.createElement("a");
+    download.href = fileUrl(item.file); download.textContent = "\u2193"; download.title = "Download";
+    download.setAttribute("aria-label", "Download " + item.name);
+    meta.appendChild(caption); meta.appendChild(view); meta.appendChild(download);
+    tile.appendChild(picture); tile.appendChild(tick);
+    if (item.video) {
+      var badge = document.createElement("div");
+      badge.className = "badge"; badge.textContent = "Video";
+      tile.appendChild(badge);
+    }
+    tile.appendChild(meta);
+    $("grid").appendChild(tile);
+    updateBar();
+  }
+
+  function readLines(response, onLine) {
+    if (response.body && response.body.getReader) {
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      var pump = function () {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) {
+            if (buffer.trim()) { onLine(buffer); }
+            return;
+          }
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var parts = buffer.split("\n");
+          buffer = parts.pop();
+          parts.forEach(function (line) { if (line.trim()) { onLine(line); } });
+          return pump();
+        });
+      };
+      return pump();
+    }
+    return response.text().then(function (text) {
+      text.split("\n").forEach(function (line) { if (line.trim()) { onLine(line); } });
+    });
+  }
+
+  function search(fresh) {
+    if (state.controller) { state.controller.abort(); }
+    if (fresh) {
+      state.query = $("query").value.trim();
+      state.next = 1; state.items = []; state.picked = {};
+      clearChildren($("grid"));
+      updateBar();
+    }
+    if (!state.query) { return; }
+    var controller = window.AbortController ? new AbortController() : null;
+    state.controller = controller;
+    $("more").hidden = true;
+    $("search-button").disabled = true;
+    var before = state.items.length;
+    setStatus("Looking\u2026 the first results can take up to a minute.");
+    var finished = false;
+    fetch("/api/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Password": password() },
+      body: JSON.stringify({ query: state.query, platform: state.platform, kind: state.kind,
+                             start: state.next, count: state.info.page_size, cookies: cookiesFor(state.platform) }),
+      signal: controller ? controller.signal : undefined
+    }).then(function (response) {
+      if (response.status === 401) { localStorage.removeItem("ss.password"); showGate("Enter the password again."); throw null; }
+      if (!response.ok) {
+        return response.json().then(function (body) { throw new Error(body.error || ("HTTP " + response.status)); });
+      }
+      return readLines(response, function (line) {
+        var message;
+        try { message = JSON.parse(line); } catch (error) { return; }
+        if (message.type === "start") {
+          setStatus("Looking at " + message.target + "\u2026");
+        } else if (message.type === "item") {
+          addTile(message.item);
+          setStatus("Found " + state.items.length + "\u2026");
+        } else if (message.type === "done") {
+          finished = true;
+          state.next = message.next;
+          $("more").hidden = !message.more;
+          var found = state.items.length - before;
+          setStatus(state.items.length ? state.items.length + " shown. Tap pictures to pick, or \u2193 to save one."
+                                       : "Nothing found. Check the name, or add cookies for this site.", !state.items.length && found === 0);
+        } else if (message.type === "error") {
+          finished = true;
+          state.next = message.next;
+          setStatus(message.message, true);
+        }
+      });
+    }).then(function () {
+      if (!finished && state.controller === controller) { setStatus("The search stopped early. Tap Search to try again.", true); }
+    }).catch(function (error) {
+      if (error && error.name === "AbortError") { return; }
+      if (error) { setStatus(error.message || String(error), true); }
+    }).then(function () {
+      if (state.controller === controller) { state.controller = null; }
+      $("search-button").disabled = false;
+    });
+  }
+
+  function downloadPicked() {
+    var picked = Object.keys(state.picked).map(function (key) { return state.picked[key]; });
+    if (!picked.length) { return; }
+    if (picked.length === 1) {
+      window.location.href = fileUrl(picked[0].file);
+      return;
+    }
+    var form = $("zip-form");
+    clearChildren(form);
+    picked.forEach(function (item) {
+      var field = document.createElement("input");
+      field.type = "hidden"; field.name = "t"; field.value = item.file;
+      form.appendChild(field);
+    });
+    var name = document.createElement("input");
+    name.type = "hidden"; name.name = "name";
+    name.value = state.platform + "_" + state.query.replace(/^.*\//, "").replace(/^@/, "");
+    form.appendChild(name);
+    form.submit();
+    setStatus("Making a zip of " + picked.length + " files \u2014 the download starts in a moment.");
+  }
+
+  function showGate(message) {
+    $("app").hidden = true;
+    $("bar").className = "bar";
+    $("gate").hidden = false;
+    $("gate-message").textContent = message || "";
+    $("gate-password").focus();
+  }
+  function showApp() {
+    $("gate").hidden = true;
+    $("app").hidden = false;
+    renderTabs();
+    renderCookieRows();
+    updateBar();
+  }
+
+  $("gate-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    var given = $("gate-password").value;
+    fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: given }) })
+      .then(function (response) {
+        if (response.ok) { localStorage.setItem("ss.password", given); showApp(); }
+        else { $("gate-message").textContent = "Wrong password."; }
+      });
+  });
+  $("search-form").addEventListener("submit", function (event) { event.preventDefault(); $("query").blur(); search(true); });
+  $("more").addEventListener("click", function () { search(false); });
+  $("download").addEventListener("click", downloadPicked);
+  $("select-all").addEventListener("click", function () {
+    var everything = Object.keys(state.picked).length === state.items.length;
+    state.picked = {};
+    if (!everything) { state.items.forEach(function (item) { state.picked[item.index] = item; }); }
+    Array.prototype.forEach.call($("grid").children, function (tile, position) {
+      var on = !!state.picked[state.items[position].index];
+      tile.className = "tile" + (on ? " on" : "");
+      tile.querySelector(".tick").textContent = on ? "\u2713" : "";
+    });
+    updateBar();
+  });
+  $("viewer-close").addEventListener("click", hideViewer);
+  $("viewer").addEventListener("click", function (event) { if (event.target === $("viewer")) { hideViewer(); } });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape") { hideViewer(); } });
+
+  var shared = new URLSearchParams(window.location.search).get("q");
+  fetch("/api/info").then(function (response) { return response.json(); }).then(function (info) {
+    state.info = info;
+    if (!info.platforms[state.platform]) { state.platform = Object.keys(info.platforms)[0]; }
+    if (!info.password) { showApp(); }
+    else {
+      fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: password() }) })
+        .then(function (response) { if (response.ok) { showApp(); } else { showGate(); } });
+    }
+    if (shared) { $("query").value = shared; }
+  }).catch(function () { setStatus("Could not reach the server.", true); $("app").hidden = false; });
+})();
+</script>
+</body>
+</html>

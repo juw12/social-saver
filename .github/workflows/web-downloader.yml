@@ -1,0 +1,46 @@
+name: web-downloader
+
+# The free web version (Vercel): a real TikTok search + download from a datacenter IP,
+# and the same build Vercel runs, so a broken deploy shows up here first.
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"  # weekly: catches site changes that break the engine
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install (exactly what Vercel installs)
+        run: python -m pip install -r requirements.txt
+      - name: pywebview is skipped on Linux
+        run: "! python -m pip show pywebview"
+      - name: Real search, file and zip
+        run: python .github/scripts/live_webdl.py
+
+  vercel-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build like Vercel does (no account needed)
+        run: |
+          mkdir -p .vercel
+          echo '{"projectId":"ci","orgId":"ci","settings":{"framework":null}}' > .vercel/project.json
+          npx --yes vercel@latest build --yes
+      - name: Check the output
+        run: |
+          ls .vercel/output/functions/api
+          test -d .vercel/output/functions/api/index.func
+          du -sh .vercel/output/functions/api/index.func
+          python3 -c "import json; c=json.load(open('.vercel/output/config.json')); print(json.dumps(c['routes'], indent=1)[:1500])"
+          test -f .vercel/output/functions/api/index.func/saver/webdl.py
+          test -f .vercel/output/functions/api/index.func/web/index.html
+          test ! -e .vercel/output/functions/api/index.func/android
