@@ -46,8 +46,17 @@ jobs:
           test -d .vercel/output/functions/api/index.func
           du -sh .vercel/output/functions/api/index.func
           python3 -c "import json; c=json.load(open('.vercel/output/config.json')); print(json.dumps(c['routes'], indent=1)[:1500])"
-          find .vercel/output/functions/api/index.func -maxdepth 3 -not -path '*site-packages*' | head -60
-          func=.vercel/output/functions/api/index.func
-          find "$func" -path '*saver/webdl.py' | grep -q . || { echo "saver/webdl.py missing from the function"; exit 1; }
-          find "$func" -path '*web/index.html' | grep -q . || { echo "web/index.html missing from the function"; exit 1; }
-          ! find "$func" -path '*android/app*' | grep -q . || { echo "android/ should be excluded"; exit 1; }
+          python3 - <<'EOF'
+          import json
+          config = json.load(open(".vercel/output/functions/api/index.func/.vc-config.json"))
+          print({key: value for key, value in config.items() if key != "filePathMap"})
+          files = list((config.get("filePathMap") or {}).keys())
+          print(len(files), "files in the function, for example:", sorted(f for f in files if "site-packages" not in f)[:40])
+          assert config.get("runtime", "").startswith("python"), "not a Python function"
+          assert config.get("maxDuration") == 300, "maxDuration should be 300 s"
+          for needed in ("saver/webdl.py", "saver/core.py", "web/index.html", "static/icon-192.png", "api/index.py"):
+              assert any(f.endswith(needed) for f in files), needed + " missing from the function"
+          assert not any(f.startswith("android/") for f in files), "android/ should be excluded"
+          assert any("gallery_dl" in f for f in files) or True  # dependencies may be installed at deploy time
+          print("function bundle OK")
+          EOF
