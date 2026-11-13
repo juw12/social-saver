@@ -1,14 +1,14 @@
 ﻿# Social Saver
 
 One small app to save posts, reels, videos, stories and highlights from
-Instagram, Threads, X and TikTok. Runs on Windows, and you can use it from an
-Android phone or an iPhone too. You pick the types you want. Everything lands
+Instagram, Threads, X and TikTok. Runs on Windows, as an Android app, and as a
+private web app you can add to the home screen of an iPhone or Android phone. You pick the types you want. Everything lands
 in one zip per account, sorted into folders. Run it again and it only adds what
 is new.
 
 ![Social Saver, dark theme](docs/screenshot.png)
 
-Free, runs on your own PC, no account with us and no API keys. MIT licence.
+Free, runs on your own PC, phone or private server, no account with us and no API keys. MIT licence.
 
 ## Open it
 
@@ -31,10 +31,58 @@ You get a grid of thumbnails; untick what you don't want and press **Save select
 
 ## Use it on your phone (Android or iPhone)
 
-**Phone + PC (Android and iPhone):** in the app on the PC, turn on **Use on your phone**
-(bottom card) and scan the QR code with the phone camera. The phone and PC must be on
-the same Wi-Fi. The phone shows the same screen; the PC does the downloading. Tap a
-zip in "Your zips" to keep a copy on the phone.
+Three ways. Pick one:
+
+| Way | Phones | Needs a PC? |
+|-----|--------|-------------|
+| [Android app](#android-app-no-pc) | Android 10+ | no |
+| [Your own web app](#web-app-iphone-and-android-no-pc) | iPhone and Android | no (free cloud server) |
+| [Phone + PC](#phone--pc-same-wi-fi) | iPhone and Android | yes, same Wi-Fi |
+
+### Android app (no PC)
+
+1. On the phone, download **[SocialSaver-android.apk](https://github.com/juw12/social-saver/releases/latest/download/SocialSaver-android.apk)**.
+2. Open it. Android asks to allow installs from this source (Chrome or Files): allow it,
+   then tap **Install**. It is not from the Play Store, so Play Protect may warn once.
+3. Open **Social Saver**. It is the same screen as on the PC and does the downloading on
+   the phone itself (Python and the download engines are inside the app).
+
+- **Share to the app:** in Instagram, Threads, X or TikTok tap Share > **Social Saver**.
+  The link is filled in for you.
+- **Sign in:** the Sign in button opens the platform's real login page inside the app;
+  only the session cookie is kept, on the phone. **Import cookies file** also works.
+- Zips go to **Download/SocialSaver** on the phone (tap a zip in "Your zips").
+- Updates: download the newer APK and install it over the old one; sign-ins stay.
+
+### Web app (iPhone and Android, no PC)
+
+Your own private copy on a free cloud server ([Render](https://render.com)). One-time
+setup, about 5 minutes:
+
+1. Press **[Deploy to Render](https://render.com/deploy?repo=https://github.com/juw12/social-saver)**
+   and sign in to Render with your GitHub account (free plan, no card needed for it).
+2. Render asks for **SOCIAL_SAVER_PASSWORD**: type a password only you know. Press
+   **Deploy** and wait until it says *Live* (first build takes a few minutes).
+3. Open your address (like `https://social-saver-xxxx.onrender.com`) on the phone and
+   type the password.
+4. Keep it as an app: iPhone Safari Share > **Add to Home Screen**; Android Chrome
+   menu > **Add to Home screen** (on Android you can then also share posts to it).
+
+- Tap a zip in "Your zips" to save it to the phone (iPhone: Files app > Downloads).
+- Sign in with **Import cookies file** (export cookies on any browser, see
+  [Sign in](#sign-in-for-private-accounts-you-follow)). The browser on your phone keeps
+  them and sends them again whenever the server restarts.
+- Free plan limits: the server sleeps after 15 minutes without use, so the first open
+  takes about a minute; files on the server are wiped when it restarts, so save your
+  zips to the phone right away.
+- Instagram often blocks cloud servers. If Instagram fails there, use the Android app
+  or Phone + PC for Instagram. X and TikTok usually work.
+
+### Phone + PC (same Wi-Fi)
+
+In the app on the PC, turn on **Use on your phone** (bottom card) and scan the QR code
+with the phone camera. The phone shows the same screen; the PC does the downloading.
+Tap a zip in "Your zips" to keep a copy on the phone.
 
 - Keep it as an app: iPhone Safari Share > **Add to Home Screen**; Android Chrome
   menu > **Add to Home screen**.
@@ -45,23 +93,21 @@ zip in "Your zips" to keep a copy on the phone.
 - Sign in on the PC. On the phone you can also use **Import cookies file**.
 - **iPhone share button (optional):** in the Shortcuts app make a shortcut that
   receives URLs from the Share Sheet, then *URL Encode* the input and *Open URLs*
-  `http://<link from the QR code>&url=<encoded input>`. Sharing a post to it opens
-  Social Saver with the link already filled in.
+  `<your Social Saver address>&url=<encoded input>` (use `?url=` if the address has no
+  `?`). Sharing a post to it opens Social Saver with the link already filled in. This
+  works for the web app too.
 
-**Android on its own (no PC):** install [Termux](https://f-droid.org/packages/com.termux/)
+**Android with Termux (older way):** install [Termux](https://f-droid.org/packages/com.termux/)
 (from F-Droid or GitHub, not the old Play Store build) and run:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/juw12/social-saver/main/mobile/termux-setup.sh | bash
 ```
 
-Then **share** any Instagram, Threads, X or TikTok post or profile **to Termux** and it
-is saved to `Download/SocialSaver` on the phone. Or type `social-saver` in Termux to open
-the full screen in the phone browser. If sharing to Termux does nothing, allow Termux
-"Display over other apps" in Android settings.
+Then **share** a post or profile **to Termux** and it is saved to `Download/SocialSaver`.
 
-**iPhone on its own:** not possible. iOS stops background apps and Apple does not
-allow downloader apps, so on an iPhone use the "Phone + PC" way above.
+**Why no iPhone app?** Apple does not allow downloader apps in the App Store and iOS
+cannot run Python apps from outside it, so on an iPhone use the web app.
 
 ## Where the files go
 
@@ -134,20 +180,28 @@ python -m pytest -q      # no network needed; CI runs them on Windows + Linux
 python app.py            # run with a console
 python app.py --serve    # no window: open the screen in a browser (add --host 0.0.0.0 for phones)
 python app.py --save <link or text with a link>   # save now and exit (Android "Share")
+python app.py --self-test <file url>   # one real engine download, prints SELFTEST OK
+SOCIAL_SAVER_PASSWORD=... python app.py --serve --host 0.0.0.0   # web app mode (password login)
 ```
 
 - `app.py` - window, local API, job runner
 - `saver/core.py` - link parsing, engine config, zip sorting, duplicate check
 - `saver/threads.py` - Threads reader (beta)
 - `saver/phone.py` - phone mode: key, QR code, the Wi-Fi server
+- `saver/engine.py` - runs gallery-dl inside the app process (Android has no subprocesses)
+- `android/` - Android app (Kotlin WebView + Python via Chaquopy); `android/sync.sh` copies
+  the Python app in, CI builds the APK and starts it on an emulator
+- `Dockerfile`, `render.yaml` - the web app (Render blueprint)
 - `mobile/termux-setup.sh` - Android setup (Termux)
 - `ui.html` - the screen
 - `tests/` - uses a fake engine, so tests never touch the real sites
 
-Set `SOCIAL_SAVER_HOME` to move the data folder (cookies, history, settings).
+Set `SOCIAL_SAVER_HOME` to move the data folder (cookies, history, settings) and
+`SOCIAL_SAVER_OUTPUT_DIR` to change the default zip folder.
 
 ## Status
 
 Early version. The app, zip sorting and duplicate check are covered by tests with a fake
-engine. A real signed-in download has not been confirmed yet on every platform; please
+engine; CI also runs a real engine download in the web app container and in the Android
+app on an emulator (not yet on a real phone). A real signed-in download has not been confirmed yet on every platform; please
 open an issue if one breaks.

@@ -332,7 +332,15 @@
 <script>
 const TOKEN = "__TOKEN__";
 const MODE = "__MODE__";  // "desktop" (the PC window) or "phone" (a browser over Wi-Fi / Termux)
-const ON_PHONE = MODE === "phone";
+const ON_PHONE = MODE !== "desktop";  // phone on the PC's Wi-Fi, cloud web app, or the Android app
+const SIGN_IN_HINT = {
+  phone: "Sign in on the PC, or import a cookies file",
+  web: "Import a cookies file from your browser",
+  android: "Sign in",
+  desktop: "Sign in",
+}[MODE];
+const COOKIE_STORE_PREFIX = "social-saver-cookies-";  // web app: the phone keeps the sign-in, not the server
+const triedStoredCookies = new Set();
 const TYPE_LABELS = { posts: "Posts (photos)", videos: "Videos" };
 let state = null;
 let selectedPlatform = "instagram";
@@ -393,12 +401,11 @@ function renderTabs() {
   const platform = currentPlatform();
   byId("signinText").textContent = platform.signed_in
     ? "Signed in to " + platform.label + " - private accounts you follow are included."
-    : "Not signed in to " + platform.label + ". "
-      + (ON_PHONE ? "Sign in on the PC, or import a cookies file" : "Sign in")
+    : "Not signed in to " + platform.label + ". " + SIGN_IN_HINT
       + " to reach private accounts you follow"
       + (platform.id === "threads" ? "." : " (most downloads need it).");
   byId("signinButton").textContent = platform.signed_in ? "Sign out" : "Sign in";
-  byId("signinButton").hidden = ON_PHONE && !platform.signed_in;
+  byId("signinButton").hidden = (MODE === "phone" || MODE === "web") && !platform.signed_in;
 }
 
 function renderTypes() {
@@ -478,7 +485,32 @@ async function refresh() {
   }
   renderJob();
   renderZips();
+  if (MODE === "web") {
+    restoreStoredCookies();
+  }
 }
+
+// The cloud server forgets everything when it restarts, so the web app keeps imported
+// cookies in this browser and quietly hands them back when the server lost them.
+function restoreStoredCookies() {
+  for (const platform of state.platforms) {
+    const stored = localStorage.getItem(COOKIE_STORE_PREFIX + platform.id);
+    if (stored && !platform.signed_in && !triedStoredCookies.has(platform.id)) {
+      triedStoredCookies.add(platform.id);
+      api("import-cookies", { platform: platform.id, text: stored }).catch(() => {});
+    }
+  }
+}
+
+async function importCookies(platformId, text) {
+  await act("import-cookies", { platform: platformId, text });
+  if (MODE === "web" && !byId("error").textContent) {
+    localStorage.setItem(COOKIE_STORE_PREFIX + platformId, text);
+  }
+}
+
+// The Android app signs in on the platform's real page and hands the cookies back here.
+window.socialSaverCookiesFromApp = (platformId, text) => importCookies(platformId, text);
 
 byId("startButton").onclick = () => act("start", {
   platform: selectedPlatform,
@@ -603,13 +635,22 @@ byId("cookieFile").onchange = async () => {
   const file = byId("cookieFile").files[0];
   byId("cookieFile").value = "";
   if (file) {
-    await act("import-cookies", { platform: selectedPlatform, text: await file.text() });
+    await importCookies(selectedPlatform, await file.text());
   }
 };
 
 byId("stopButton").onclick = () => act("cancel", {});
-byId("signinButton").onclick = () =>
-  act(currentPlatform().signed_in ? "signout" : "signin", { platform: selectedPlatform });
+byId("signinButton").onclick = () => {
+  const platform = currentPlatform();
+  if (platform.signed_in) {
+    localStorage.removeItem(COOKIE_STORE_PREFIX + platform.id);
+    act("signout", { platform: platform.id });
+  } else if (MODE === "android" && window.SocialSaverAndroid) {
+    window.SocialSaverAndroid.signIn(platform.id, platform.login_url, platform.auth_cookie, platform.domains[0]);
+  } else {
+    act("signin", { platform: platform.id });
+  }
+};
 byId("openFolder").onclick = () => act("open-folder", {});
 byId("chooseFolder").onclick = () => act("choose-folder", {});
 byId("updateEngines").onclick = () => act("update-engines", {});
@@ -676,7 +717,8 @@ function platformForLink(link) {
 async function start() {
   await refresh();
   const params = new URLSearchParams(location.search);
-  const sharedText = params.get("url");
+  // ?url= from the iPhone Shortcut or the Android app; text/title from the web app's share target
+  const sharedText = params.get("url") || params.get("text") || params.get("title");
   if (sharedText) {
     const link = (sharedText.match(/https?:\/\/\S+/) || [sharedText.trim()])[0];
     byId("targets").value = link;
@@ -687,10 +729,16 @@ async function start() {
       renderTypes();
     }
     updatePickButton();
-    params.delete("url");
+    for (const name of ["url", "text", "title"]) {
+      params.delete(name);
+    }
     const rest = params.toString();
     history.replaceState(null, "", location.pathname + (rest ? "?" + rest : ""));
   }
+}
+
+if (MODE === "web" && "serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
 start();

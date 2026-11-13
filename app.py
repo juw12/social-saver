@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hmac
+import html
 import json
 import os
 import re
@@ -23,12 +24,13 @@ from pathlib import Path
 from typing import Callable
 
 import requests
-from flask import Flask, Response, abort, jsonify, request, send_file
+from flask import Flask, Response, abort, jsonify, redirect, request, send_file
 from werkzeug.serving import make_server
 
-from saver import core, phone, threads
+from saver import core, engine, phone, threads
 
 APP_DIR = Path(__file__).resolve().parent
+WEB_DIR = Path(os.environ.get("SOCIAL_SAVER_WEB_DIR") or APP_DIR)  # ui.html + static/ (the Android app unpacks them)
 ENGINE_COMMAND = [sys.executable, "-m", "gallery_dl"]
 ENGINE_PROBLEM_LINE = re.compile(r"^\[[\w.-]+\]\[(warning|error)\]")
 ENGINE_INFO_LINE = re.compile(r"^\[[\w.-]+\]\[(debug|info)\]")
@@ -40,6 +42,24 @@ STATIC_FILES = {
     "icon-512.png": "image/png",
     "apple-touch-icon.png": "image/png",
 }
+LOGIN_PAGE = """<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Social Saver</title>
+<link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#2f5d50">
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:24em;margin:14vh auto;padding:0 20px">
+<h1 style="font-size:24px">Social Saver</h1>
+<form method="post" action="/login">
+<input type="hidden" name="next" value="__NEXT__">
+<label style="display:block;font-weight:600;margin-bottom:6px" for="password">Password</label>
+<input id="password" type="password" name="password" autofocus autocomplete="current-password"
+ style="width:100%;font-size:16px;padding:12px;border:1px solid #ccc;border-radius:10px">
+<button style="margin-top:14px;width:100%;font-size:16px;padding:12px;border:0;border-radius:10px;background:#2f5d50;color:#fff">Open</button>
+<p style="color:#a2541a">__ERROR__</p></form></body>"""
+SERVICE_WORKER = """// Lets phones install Social Saver as an app. Everything still comes from the server.
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", () => {});
+"""
 LOCKED_PAGE = """<!doctype html><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Social Saver</title>
 <body style="font:16px/1.5 system-ui,sans-serif;max-width:30em;margin:12vh auto;padding:0 20px">
@@ -119,14 +139,14 @@ class JobRunner:
 def run_engine(runner: JobRunner, run: core.EngineRun, config_path: Path,
                limit: int | None, platform_label: str, pick: list[int] | None = None) -> None:
     """One gallery-dl run; counts saved files and explains known errors."""
-    command = [*ENGINE_COMMAND, "--config-ignore", "--config", str(config_path)]
+    args = ["--config-ignore", "--config", str(config_path)]
     if run.file_filter:
-        command += ["--filter", run.file_filter]
+        args += ["--filter", run.file_filter]
     if pick:
-        command += ["--range", core.range_for_pick(pick)]
+        args += ["--range", core.range_for_pick(pick)]
     elif limit:
-        command += ["--range", f"1-{limit}"]
-    command.append(run.url)
+        args += ["--range", f"1-{limit}"]
+    args.append(run.url)
     skipped = 0
 
     def on_line(line: str) -> None:
@@ -140,11 +160,14 @@ def run_engine(runner: JobRunner, run: core.EngineRun, config_path: Path,
             return
         elif line.startswith("#"):
             skipped += 1
-        else:
+        elif Path(line).is_file():  # the engine prints the path of every file it saved
             runner.downloaded += 1
             runner.log(f"saved {Path(line).name}")
 
-    runner.run_process(command, on_line)
+    if engine.in_process():
+        engine.run_in_process(args, on_line, should_stop=lambda: runner.cancelled)
+    else:
+        runner.run_process([*ENGINE_COMMAND, *args], on_line)
     if skipped:
         runner.log(f"{skipped} file(s) were already downloaded before - skipped.")
 
@@ -210,6 +233,18 @@ def preview_target(target: core.Target) -> list[dict]:
     """Picker items (with picture urls) for one post link."""
     if target.platform == "threads":
         return threads.preview(target)
+    label = core.PLATFORMS[target.platform]["label"]
+    if engine.in_process():
+        try:
+            items = core.preview_items_from_engine(
+                engine.dump_json_in_process(str(write_engine_config()), target.url),
+            )
+        except ValueError as error:
+            hint = core.explain_engine_message(str(error), label)
+            raise ValueError(hint or f"{label} could not list that post ({error}).") from error
+        if not items:
+            raise ValueError(f"Nothing to pick in that {label} link.")
+        return items
     command = [
         *ENGINE_COMMAND, "--config-ignore", "--config", str(write_engine_config()),
         "--dump-json", target.url,
@@ -225,7 +260,6 @@ def preview_target(target: core.Target) -> list[dict]:
         timeout=PREVIEW_TIMEOUT_SECONDS,
         creationflags=NO_CONSOLE_WINDOW,
     )
-    label = core.PLATFORMS[target.platform]["label"]
     try:
         messages = json.loads(result.stdout or "[]")
     except ValueError:
@@ -259,6 +293,9 @@ def single_link_target(body: dict) -> core.Target:
 
 
 def update_engines(runner: JobRunner) -> None:
+    if engine.in_process():
+        runner.log("In the Android app the engines come with the app: install the newest Social Saver APK to update them.")
+        return
     runner.current = "Updating download engines"
     exit_code = runner.run_process(
         [sys.executable, "-m", "pip", "install", "--upgrade", "--quiet", "gallery-dl", "yt-dlp"],
@@ -271,17 +308,26 @@ def same_secret(given: str | None, expected: str) -> bool:
     return bool(given) and hmac.compare_digest(given.encode(), expected.encode())
 
 
+def web_token(password: str) -> str:
+    """The cookie value for the password-protected web app (stays valid across restarts)."""
+    return hmac.new(password.encode(), b"social-saver-web", "sha256").hexdigest()
+
+
 def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False,
-               phone_server: phone.PhoneServer | None = None) -> Flask:
+               phone_server: phone.PhoneServer | None = None, kind: str | None = None,
+               password: str | None = None) -> Flask:
     """The local API.
 
     `desktop` supplies the native bits (sign-in window, folder picker).
-    `remote` is the phone-facing copy: the page itself needs the phone key too.
+    `remote` is a copy for another screen: the page itself needs the key too.
+      kind "phone"   - a phone on the same Wi-Fi as the PC (key from the QR code)
+      kind "web"     - the cloud web app; `password` opens it
+      kind "android" - the screen inside the Android app
     `phone_server` lets the PC screen switch the phone server on and off.
     """
     app = Flask(__name__)
-    ui_html = (APP_DIR / "ui.html").read_text(encoding="utf-8")
-    mode = "phone" if remote else "desktop"
+    ui_html = (WEB_DIR / "ui.html").read_text(encoding="utf-8")
+    mode = (kind or "phone") if remote else "desktop"
 
     def has_key() -> bool:
         return (same_secret(request.args.get("t"), token)
@@ -298,10 +344,39 @@ def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False
     def bad_request(error):
         return jsonify(error=str(error)), 400
 
+    def login_page(error: str = "", status: int = 401) -> Response:
+        next_query = request.query_string.decode("utf-8", "replace") or request.form.get("next", "")
+        page = LOGIN_PAGE.replace("__NEXT__", html.escape(next_query, quote=True))
+        return Response(page.replace("__ERROR__", html.escape(error)), status=status, mimetype="text/html")
+
+    @app.get("/healthz")
+    def health():
+        return "ok"
+
+    @app.post("/login")
+    def login():
+        if not password:
+            abort(404)
+        if not same_secret(request.form.get("password"), password):
+            time.sleep(1)  # slows down guessing
+            return login_page("Wrong password.")
+        next_query = request.form.get("next", "")
+        page = redirect("/?" + next_query if next_query else "/")
+        secure = request.is_secure or request.headers.get("X-Forwarded-Proto", "") == "https"
+        page.set_cookie(phone.KEY_COOKIE, token, max_age=phone.KEY_COOKIE_DAYS * 86400,
+                        httponly=True, samesite="Lax", secure=secure)
+        return page
+
+    @app.get("/sw.js")
+    def service_worker():
+        return Response(SERVICE_WORKER, mimetype="text/javascript", headers={"Cache-Control": "no-cache"})
+
     @app.get("/")
     def index():
         key_in_link = request.args.get("k")
         if remote and not (same_secret(key_in_link, token) or has_key()):
+            if password:
+                return login_page()
             return Response(LOCKED_PAGE, status=403, mimetype="text/html")
         page = Response(ui_html.replace("__TOKEN__", token).replace("__MODE__", mode),
                         mimetype="text/html", headers={"Cache-Control": "no-store"})
@@ -313,7 +388,7 @@ def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False
     @app.get("/manifest.webmanifest")
     def manifest():
         """Lets "Add to Home Screen" make a proper app icon (Android and iPhone)."""
-        return Response(json.dumps({
+        manifest_data = {
             "name": "Social Saver",
             "short_name": "Social Saver",
             "display": "standalone",
@@ -323,13 +398,26 @@ def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False
                 {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
                 {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
             ],
-        }), mimetype="application/manifest+json")
+        }
+        if mode == "web":
+            # The web app logs in with a password, so it can start at "/" and take shared links
+            # straight from the Android share sheet.
+            manifest_data.update({
+                "id": "/",
+                "start_url": "/",
+                "share_target": {
+                    "action": "/",
+                    "method": "GET",
+                    "params": {"title": "title", "text": "text", "url": "url"},
+                },
+            })
+        return Response(json.dumps(manifest_data), mimetype="application/manifest+json")
 
     @app.get("/static/<name>")
     def static_file(name: str):
         if name not in STATIC_FILES:
             abort(404)
-        return send_file(APP_DIR / "static" / name, mimetype=STATIC_FILES[name], max_age=86400)
+        return send_file(WEB_DIR / "static" / name, mimetype=STATIC_FILES[name], max_age=86400)
 
     @app.get("/files/<name>")
     def zip_download(name: str):
@@ -379,6 +467,8 @@ def create_app(runner: JobRunner, token: str, desktop=None, remote: bool = False
                     "types": spec["types"],
                     "beta": spec["beta"],
                     "domains": spec["domains"],
+                    "login_url": spec["login_url"],
+                    "auth_cookie": spec["auth_cookie"],
                     "signed_in": core.is_signed_in(platform),
                 }
                 for platform, spec in core.PLATFORMS.items()
@@ -635,10 +725,24 @@ def open_in_browser(url: str) -> None:
 
 
 def serve(host: str, port: int) -> None:
-    """No window: serve the screen to a browser (Termux on Android, Linux, Mac, a home server)."""
+    """No window: serve the screen to a browser.
+
+    With SOCIAL_SAVER_PASSWORD set (the cloud web app) the page asks for that password.
+    Without it, the link carries a key (Termux on Android, a PC without a window).
+    """
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
     core.data_home().mkdir(parents=True, exist_ok=True)
-    key = phone.phone_settings()["phone_key"]
     runner = JobRunner()
+    password = os.environ.get("SOCIAL_SAVER_PASSWORD", "").strip()
+    if password:
+        app = create_app(runner, web_token(password), remote=True, kind="web", password=password)
+        server = make_server(host, port, app, threaded=True)
+        print(f"Social Saver web app is running on port {server.server_port}. Open it and enter your password.")
+        server.serve_forever()
+        return
+    key = phone.phone_settings()["phone_key"]
     server = make_server(host, port, create_app(runner, key, remote=True), threaded=True)
     reachable_host = phone.lan_address() if host in ("0.0.0.0", "") else host
     url = phone.phone_url(reachable_host, server.server_port, key)
@@ -652,6 +756,30 @@ def serve(host: str, port: int) -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         runner.cancel()
+
+
+def start_embedded(port: int = 0) -> str:
+    """For the Android app: start the screen on this device only; returns the address to open."""
+    import logging
+
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    core.data_home().mkdir(parents=True, exist_ok=True)
+    key = secrets.token_urlsafe(18)
+    app = create_app(JobRunner(), key, remote=True, kind="android")
+    server = make_server("127.0.0.1", port, app, threaded=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_port}/?k={key}"
+
+
+def self_test(url: str) -> int:
+    """Download one direct file link with the real engine; used to check the phone and cloud builds."""
+    core.data_home().mkdir(parents=True, exist_ok=True)
+    runner = JobRunner(echo=print)
+    run_engine(runner, core.EngineRun(url=url), write_engine_config(), None, "Self-test")
+    shutil.rmtree(core.data_home() / "staging" / "directlink", ignore_errors=True)
+    how = "in-process" if engine.in_process() else "child-process"
+    print(f"SELFTEST {'OK' if runner.downloaded else 'FAIL'} {runner.downloaded} file(s), {how} engine")
+    return runner.downloaded
 
 
 def run_desktop() -> None:
@@ -694,11 +822,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="no window: show the screen in a browser (Termux on Android, Linux, Mac)")
     parser.add_argument("--host", default="127.0.0.1",
                         help="with --serve: 0.0.0.0 lets phones on the same Wi-Fi in (default: this device only)")
-    parser.add_argument("--port", type=int, default=phone.DEFAULT_PORT, help="with --serve (default 8765)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT") or phone.DEFAULT_PORT),
+                        help="with --serve (default: $PORT or 8765)")
     parser.add_argument("--save", nargs="+", metavar="LINK", help="download these links or usernames now, then exit")
     parser.add_argument("--platform", choices=sorted(core.PLATFORMS),
                         help="with --save: platform for plain usernames (default instagram)")
+    parser.add_argument("--self-test", metavar="FILE_URL", help="download one direct file link to check the engine")
     args = parser.parse_args(argv)
+    if args.self_test:
+        return 0 if self_test(args.self_test) else 1
     if args.save:
         return save_now(args.save, args.platform)
     if args.serve:

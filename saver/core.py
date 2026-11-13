@@ -115,6 +115,9 @@ def is_termux() -> bool:
 
 
 def default_output_dir() -> Path:
+    override = os.environ.get("SOCIAL_SAVER_OUTPUT_DIR")  # the Android app and the cloud web app set this
+    if override:
+        return Path(override)
     phone_downloads = Path.home() / "storage" / "downloads"
     if is_termux() and phone_downloads.exists():
         return phone_downloads / "SocialSaver"

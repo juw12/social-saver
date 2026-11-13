@@ -1,0 +1,11 @@
+# One-click deploy: https://render.com/deploy?repo=https://github.com/juw12/social-saver
+# Render asks for SOCIAL_SAVER_PASSWORD; that is the password the web app asks for.
+services:
+  - type: web
+    name: social-saver
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: SOCIAL_SAVER_PASSWORD
+        sync: false

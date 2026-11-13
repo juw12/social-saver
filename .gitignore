@@ -1,3 +1,10 @@
 __pycache__/
 .pytest_cache/
 _check/
+# Android build (sync.sh copies the Python app in)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/python/
+android/app/src/main/assets/web/
