@@ -31,14 +31,16 @@ You get a grid of thumbnails; untick what you don't want and press **Save select
 
 ## Use it on your phone (Android or iPhone)
 
-Four ways. Pick one:
+Five ways. Pick one. The ones that run on your own phone or PC have **no limits at all**;
+every free hosting service has some.
 
-| Way | Phones | Needs a PC? |
-|-----|--------|-------------|
-| [Web downloader](#web-downloader-free-no-card) | iPhone, Android, any browser | no (free Vercel, no card) |
-| [Android app](#android-app-no-pc) | Android 10+ | no |
-| [Full web app](#full-web-app-render) | iPhone and Android | no (Render, may ask for a card) |
-| [Phone + PC](#phone--pc-same-wi-fi) | iPhone and Android | yes, same Wi-Fi |
+| Way | Phones | Needs a PC? | Limits of the free hosting |
+|-----|--------|-------------|----------------------------|
+| [Android app](#android-app-no-pc) | Android 10+ | no | none (runs on the phone) |
+| [Web downloader on your PC](#web-downloader-on-your-own-pc-no-limits) | iPhone and Android | yes, switched on | none (runs on your PC) |
+| [Phone + PC](#phone--pc-same-wi-fi) | iPhone and Android | yes, same Wi-Fi | none (runs on your PC) |
+| [Web downloader on Vercel](#web-downloader-free-no-card) | iPhone, Android, any browser | no | free, no card, about 10 GB of downloads a month |
+| [Full web app](#full-web-app-render) | iPhone and Android | no | Render may ask for a card; sleeps after 15 minutes |
 
 ### Web downloader (free, no card)
 
@@ -72,6 +74,41 @@ Honest limits (tested from a cloud server, the same kind Vercel uses):
 - Threads is not in the web version (use the Android app or PC).
 - Download links expire after a few hours; search again for fresh ones. One search can run
   up to 5 minutes (Vercel's free limit), so very large accounts load page by page.
+- **Vercel's free plan never charges, but it is not unlimited** (Hobby plan limits, read in
+  November 2026): every file you download passes through Vercel and counts against
+  10 GB of "Fast Origin Transfer" a month, so you get **about 10 GB of downloads a month**;
+  it is for personal, non-commercial use only. Over the limit Vercel pauses the site until
+  the limits reset (up to 30 days). It cannot bill you: there is no card on the account.
+  We found no hosting service that is free, needs no card and has no cap. For no limits,
+  use the [Android app](#android-app-no-pc) or run this same page
+  [on your own PC](#web-downloader-on-your-own-pc-no-limits).
+
+### Web downloader on your own PC (no limits)
+
+The same page as above, but your own PC does the work instead of Vercel: no account, no
+monthly cap, nothing that can ever cost money. Instagram and X also see a home connection
+instead of a cloud server, which they block less.
+
+1. On the PC, download **[SocialSaver-windows.zip](https://github.com/juw12/social-saver/releases/latest/download/SocialSaver-windows.zip)**,
+   unzip it and double-click `Start Web Downloader.bat`. The first run installs what it needs.
+2. The window shows an address (like `http://192.168.1.23:8080/`), a QR code and a
+   password. On the phone, on the same Wi-Fi, open the address or scan the QR code and
+   type the password once.
+3. Keep it as an app: iPhone Safari Share > **Add to Home Screen**; Android Chrome
+   menu > **Add to Home screen**.
+
+- The PC must be on with that window open. Close the window to stop.
+- The first time, Windows may ask whether Python may use the network: allow
+  **Private networks**.
+- The password is made once and kept on the PC (`%LOCALAPPDATA%\SocialSaver\settings.json`,
+  `web_password`). To choose your own, set `SOCIAL_SAVER_PASSWORD` before starting.
+- **Away from home:** install [Tailscale](https://tailscale.com) (free Personal plan, no
+  card) on the PC and on the phone, sign in to both with the same account, and open
+  `http://<the PC's Tailscale address>:8080/` from anywhere. It is a private link between
+  your own devices; nothing is open to the internet. (Not tested by us yet.)
+- Do not run it on an office network: company proxies block Instagram and TikTok.
+- Same as on Vercel: TikTok works without signing in, Instagram and X want your cookies
+  pasted once, Threads is not in this page.
 
 ### Android app (no PC)
 
@@ -91,8 +128,8 @@ Honest limits (tested from a cloud server, the same kind Vercel uses):
 ### Full web app (Render)
 
 The complete app (whole-account zips, history) on a [Render](https://render.com) server.
-Render may ask for a card even for the free plan; if it does, use the
-[web downloader](#web-downloader-free-no-card) above instead. One-time setup, about 5 minutes:
+Render may ask for a card even for the free plan; if it does, use one of the
+web downloaders above instead. One-time setup, about 5 minutes:
 
 1. Press **[Deploy to Render](https://render.com/deploy?repo=https://github.com/juw12/social-saver)**
    and sign in to Render with your GitHub account.
@@ -228,7 +265,8 @@ SOCIAL_SAVER_PASSWORD=... python app.py --serve --host 0.0.0.0   # web app mode 
   the Python app in, CI builds the APK and starts it on an emulator
 - `Dockerfile`, `render.yaml` - the web app (Render blueprint)
 - `saver/webdl.py`, `web/index.html`, `api/index.py`, `vercel.json` - the web downloader (Vercel);
-  run it locally with `python -m saver.webdl`
+  run it locally with `python -m saver.webdl` (add `--phone` to let phones on the Wi-Fi in;
+  `Start Web Downloader.bat` does that)
 - `mobile/termux-setup.sh` - Android setup (Termux)
 - `ui.html` - the screen
 - `tests/` - uses a fake engine, so tests never touch the real sites

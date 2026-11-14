@@ -217,6 +217,28 @@ def test_password_guards_listing_but_signed_links_still_work(monkeypatch):
     assert client.get("/api/file?t=" + item["file"]).status_code == 200
 
 
+# ---------------------------------------------------------------- on your own PC
+
+def test_phone_mode_makes_a_password_once_and_locks_the_page(monkeypatch):
+    monkeypatch.delenv("SOCIAL_SAVER_PASSWORD", raising=False)
+    address = webdl.start_phone_mode(8080)
+    made = webdl.home_password()
+    assert address.startswith("http://") and address.endswith(":8080/")
+    assert len(made) == 10
+    assert webdl.core.load_settings()["web_password"] == made  # kept, so the phone need not retype it
+    client = make_client([TIKTOK_ENTRY])
+    assert client.get("/api/info").get_json()["password"] is True
+    assert client.post("/api/list", json={"query": "a", "platform": "tiktok"}).status_code == 401
+    assert client.post("/api/login", json={"password": made}).status_code == 200
+
+
+def test_phone_mode_keeps_a_password_you_set_yourself(monkeypatch):
+    monkeypatch.setenv("SOCIAL_SAVER_PASSWORD", "hunter2")
+    webdl.start_phone_mode(8080)
+    assert webdl.home_password() == "hunter2"
+    assert "web_password" not in webdl.core.load_settings()
+
+
 # ---------------------------------------------------------------- files
 
 def test_file_is_streamed_as_a_download_with_the_sites_headers():

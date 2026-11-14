@@ -1,7 +1,8 @@
 """Social Saver web downloader: type a username or link, see the posts, download what you pick.
 
 A small stateless Flask app made for free serverless hosting (Vercel, no card needed),
-and it also runs locally (`python -m saver.webdl`). gallery-dl lists the media; each file
+and it also runs on your own PC (`python -m saver.webdl --phone`, no hosting limits).
+gallery-dl lists the media; each file
 is then streamed from the site's CDN through this server, so the phone gets a normal
 download (or a zip of everything it ticked).
 
@@ -555,11 +556,56 @@ def create_app(lister: Lister | None = None, opener=None) -> Flask:
 app = create_app()
 
 
-if __name__ == "__main__":
+# ---------------------------------------------------------------- on your own PC
+
+def home_password() -> str:
+    """The password phones type in phone mode: SOCIAL_SAVER_PASSWORD, or one made once and kept in settings.json."""
+    given = os.environ.get("SOCIAL_SAVER_PASSWORD")
+    if given:
+        return given
+    settings = core.load_settings()
+    if not settings.get("web_password"):
+        settings["web_password"] = secrets.token_hex(5)
+        core.save_settings(settings)
+    return settings["web_password"]
+
+
+def start_phone_mode(port: int) -> str:
+    """Lock the page with the home password and return the address a phone on the same Wi-Fi opens.
+
+    Running on your own PC has no hosting limits (no monthly data cap, no bill) and the
+    sites see a home connection instead of a cloud server.
+    """
+    from . import phone
+
+    os.environ["SOCIAL_SAVER_PASSWORD"] = home_password()  # also the key that signs the download links
+    return f"http://{phone.lan_address()}:{port}/"
+
+
+def main(argv: list[str] | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Social Saver web downloader")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
-    arguments = parser.parse_args()
-    app.run(host=arguments.host, port=arguments.port, threaded=True)
+    parser.add_argument("--phone", action="store_true",
+                        help="let phones on the same Wi-Fi in: prints the address, a QR code and the password")
+    arguments = parser.parse_args(argv)
+    host = arguments.host
+    if arguments.phone:
+        from . import phone
+
+        host = "0.0.0.0"
+        address = start_phone_mode(arguments.port)
+        print(f"\nOn the phone (same Wi-Fi) open:  {address}")
+        print(f"Password:                        {home_password()}")
+        print("Keep this window open while you use it. Close it to stop.\n")
+        try:
+            phone.print_qr(address)
+        except (OSError, UnicodeError):
+            pass  # a console that cannot draw the QR code; the address above is enough
+    app.run(host=host, port=arguments.port, threaded=True)
+
+
+if __name__ == "__main__":
+    main()
