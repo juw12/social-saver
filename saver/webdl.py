@@ -2,7 +2,7 @@
 
 A small stateless Flask app made for free serverless hosting (Vercel, no card needed),
 and it also runs on your own PC (`python -m saver.webdl --phone`, no hosting limits).
-gallery-dl lists the media; each file
+gallery-dl lists the media (saver/threads.py does it for Threads); each file
 is then streamed from the site's CDN through this server, so the phone gets a normal
 download (or a zip of everything it ticked).
 
@@ -27,6 +27,8 @@ import threading
 import time
 import zipfile
 import zlib
+from datetime import datetime, timezone
+from http.cookiejar import LoadError, MozillaCookieJar
 from pathlib import Path
 from typing import Callable, Iterator
 from urllib.parse import quote
@@ -34,7 +36,7 @@ from urllib.parse import quote
 import requests
 from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 
-from . import core
+from . import core, threads
 
 PAGE_SIZE = 24
 MAX_PAGE_SIZE = 60
@@ -43,10 +45,11 @@ TOKEN_LIFETIME_SECONDS = 6 * 3600
 CHUNK_BYTES = 256 * 1024
 UPSTREAM_TIMEOUT = (15, 60)  # connect, read (seconds)
 LISTING_TIMEOUT_SECONDS = 280  # Vercel stops a function at 300 s
-WEB_PLATFORMS = ("instagram", "x", "tiktok")
+WEB_PLATFORMS = ("instagram", "threads", "x", "tiktok")
 # What the user can ask for per platform -> the type names core.plan_runs() understands.
 KINDS = {
     "instagram": {"posts": ["posts"], "reels": ["reels"], "stories": ["stories"], "highlights": ["highlights"]},
+    "threads": {"media": ["posts", "videos"]},
     "x": {"media": ["posts", "videos"]},
     "tiktok": {"videos": ["posts", "videos"], "stories": ["stories"]},
 }
@@ -157,6 +160,8 @@ def post_link(platform: str, metadata: dict) -> str:
         return ""
     if platform == "instagram":
         return f"https://www.instagram.com/p/{identifier}/"
+    if platform == "threads":
+        return f"https://www.threads.com/@{account_name(metadata)}/post/{identifier}"
     if platform == "x":
         return f"https://x.com/i/status/{identifier}"
     if platform == "tiktok":
@@ -303,6 +308,80 @@ def gallery_dl_lister(url: str, file_filter: str | None, start: int, count: int,
         yield entry
 
 
+# ---------------------------------------------------------------- listing Threads
+
+def _threads_session(cookie_file: str | None) -> requests.Session:
+    """A browser-like session, signed in only with the cookies the user pasted for this search."""
+    session = requests.Session()
+    session.headers.update(threads.BROWSER_HEADERS)
+    if cookie_file:
+        jar = MozillaCookieJar(cookie_file)
+        try:
+            jar.load(ignore_discard=True, ignore_expires=True)
+        except (OSError, LoadError) as error:
+            raise ListingError(f"Could not read the Threads cookies: {error}") from error
+        session.cookies.update(jar)
+    return session
+
+
+def _threads_entry(post: dict, item: dict, number: int, fallback_account: str) -> dict:
+    """One Threads photo/video in the same shape gallery_dl_lister gives."""
+    caption = post.get("caption")
+    taken_at = post.get("taken_at")
+    date = ""
+    if isinstance(taken_at, (int, float)) and taken_at > 0:
+        date = datetime.fromtimestamp(taken_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    file_headers = {"User-Agent": threads.BROWSER_HEADERS["User-Agent"]}  # the CDN links are signed: no cookies
+    return {
+        "url": item["url"],
+        "meta": {
+            "username": threads._post_owner(post) or fallback_account,
+            "shortcode": post["code"],
+            "num": number,
+            "extension": "mp4" if item["video"] else "jpg",
+            "caption": caption.get("text") if isinstance(caption, dict) else "",
+            "date": date,
+        },
+        "headers": file_headers,
+        "thumb": item["thumb"],
+        "thumb_headers": file_headers if item["thumb"] else None,
+    }
+
+
+def threads_lister(target: core.Target, start: int, count: int, cookie_file: str | None,
+                   should_stop: Callable[[], bool] = lambda: False,
+                   session=None, pause: float = threads.PAGE_PAUSE_SECONDS) -> Iterator[dict]:
+    """Photos/videos start..start+count-1 of a Threads profile or post, newest first.
+
+    Older posts are only loaded until that many photos/videos are found.
+    """
+    wanted = start + count - 1
+
+    def media_count(posts: list[dict]) -> int:
+        return sum(len(threads.media_items(post)) for post in posts)
+
+    try:
+        session = session or _threads_session(cookie_file)
+        posts = threads._load_posts(session, target, None, lambda _message: None, should_stop, pause,
+                                    enough=lambda found: media_count(found) >= wanted)
+    except requests.RequestException as error:
+        raise ListingError(f"{type(error).__name__}: {error}") from error
+    if not posts:
+        raise ListingError("no posts found on that page. The name may be wrong, the account private, or "
+                           "Threads wants a sign-in from this server: add your Threads cookies under "
+                           "'Sign-in cookies' and search again.")
+    position = 0
+    for post in posts:
+        items = threads.media_items(post)
+        for number, item in enumerate(items, start=1):
+            position += 1
+            if position < start:
+                continue
+            if position > wanted:
+                return
+            yield _threads_entry(post, item, number if len(items) > 1 else 0, target.username or "")
+
+
 def _cookie_file_for(platform: str, cookie_text: str) -> str | None:
     """Write the user's pasted cookies (this platform's only) to a temporary cookies.txt."""
     if not cookie_text.strip():
@@ -399,8 +478,9 @@ def zip_stream(payloads: list[dict], opener=None) -> Iterator[bytes]:
 
 # ---------------------------------------------------------------- the app
 
-def create_app(lister: Lister | None = None, opener=None) -> Flask:
+def create_app(lister: Lister | None = None, opener=None, threads_source=None) -> Flask:
     lister = lister or gallery_dl_lister
+    threads_source = threads_source or threads_lister
     opener = opener or _open_upstream
     app = Flask(__name__, static_folder=None)
 
@@ -465,15 +545,15 @@ def create_app(lister: Lister | None = None, opener=None) -> Flask:
             target = core.parse_target(core.extract_link(query), platform)
         except ValueError as error:
             return jsonify(error=str(error)), 400
-        if target.platform not in WEB_PLATFORMS:
-            return jsonify(error="Threads is not in the web version yet. Use the phone or PC app for Threads."), 400
         platform = target.platform
-        if target.username:
-            kind = body.get("kind") if body.get("kind") in KINDS[platform] else next(iter(KINDS[platform]))
-            runs = core.plan_runs(target, KINDS[platform][kind])
-        else:
-            runs = core.plan_runs(target, [])
-        run = runs[0]
+        run = None  # Threads has no gallery-dl run: saver/threads.py reads the page itself
+        if platform != "threads":
+            if target.username:
+                kind = body.get("kind") if body.get("kind") in KINDS[platform] else next(iter(KINDS[platform]))
+                runs = core.plan_runs(target, KINDS[platform][kind])
+            else:
+                runs = core.plan_runs(target, [])
+            run = runs[0]
         try:
             cookie_file = _cookie_file_for(platform, str(body.get("cookies") or ""))
         except ValueError as error:
@@ -486,9 +566,14 @@ def create_app(lister: Lister | None = None, opener=None) -> Flask:
             sent = 0
             try:
                 yield json.dumps({"type": "start", "platform": platform, "target": target.display}) + "\n"
-                entries = lister(run.url, run.file_filter, start, count + 1, cookie_file,
-                                 core.PLATFORMS[platform]["engine_category"],
-                                 lambda: stop.is_set() or time.monotonic() > deadline)
+                def should_stop() -> bool:
+                    return stop.is_set() or time.monotonic() > deadline
+
+                if run is None:
+                    entries = threads_source(target, start, count + 1, cookie_file, should_stop)
+                else:
+                    entries = lister(run.url, run.file_filter, start, count + 1, cookie_file,
+                                     core.PLATFORMS[platform]["engine_category"], should_stop)
                 for entry in entries:
                     if sent == count:
                         yield json.dumps({"type": "done", "more": True, "next": start + count}) + "\n"

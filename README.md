@@ -57,7 +57,8 @@ with GitHub, **no credit card**). One-time setup, about 3 minutes:
 3. Open your address (like `https://social-saver-xxxx.vercel.app`) on the phone, type the
    password, then Safari Share > **Add to Home Screen** to keep it as an app.
 
-How to use it: pick **TikTok**, **Instagram** or **X**, type the username, **Search**.
+How to use it: pick **TikTok**, **Instagram**, **Threads** or **X**, type the username or paste
+the link of the account (a link picks the right platform by itself), **Search**.
 Thumbnails appear as they are found (24 at a time, **Load more** for older posts). Tap
 pictures to tick them and press **Download**; the arrow under a picture saves just that
 one, **View** shows it big. On iPhone the files land in Files > Downloads (open a photo
@@ -71,7 +72,8 @@ Honest limits (tested from a cloud server, the same kind Vercel uses):
   site, use the free **Cookie-Editor** browser extension > Export > JSON, and paste it (or
   load the exported file). They stay in that browser only and go along with each search;
   the server keeps nothing.
-- Threads is not in the web version (use the Android app or PC).
+- **Threads (beta)** is tried without signing in; if it finds nothing, paste your Threads
+  cookies the same way. THREADS_CLOUD_RESULT_PENDING
 - Download links expire after a few hours; search again for fresh ones. One search can run
   up to 5 minutes (Vercel's free limit), so very large accounts load page by page.
 - **Vercel's free plan never charges, but it is not unlimited** (Hobby plan limits, read in
@@ -108,7 +110,7 @@ instead of a cloud server, which they block less.
   your own devices; nothing is open to the internet. (Not tested by us yet.)
 - Do not run it on an office network: company proxies block Instagram and TikTok.
 - Same as on Vercel: TikTok works without signing in, Instagram and X want your cookies
-  pasted once, Threads is not in this page.
+  pasted once, Threads (beta) is tried without signing in.
 
 ### Android app (no PC)
 

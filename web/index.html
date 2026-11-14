@@ -145,7 +145,7 @@
       <p class="hint">Instagram and X only show posts to signed-in users when the request comes from a server.
         On a computer, sign in to the site, open the free <b>Cookie-Editor</b> browser extension, choose
         <b>Export &rarr; JSON</b> (or Netscape), and paste it here. It stays in this browser only and is sent
-        with your searches; nothing is saved on the server. TikTok works without cookies.</p>
+        with your searches; nothing is saved on the server. TikTok works without cookies; Threads is tried without them first.</p>
       <div class="rows" id="cookie-rows"></div>
     </details>
 
@@ -176,6 +176,7 @@
 (function () {
   var PLATFORM_HINTS = {
     instagram: "Instagram: add your cookies below first (Instagram blocks servers that are not signed in).",
+    threads: "Threads (beta): public accounts are tried without signing in. If nothing is found, add your Threads cookies below.",
     x: "X: add your cookies below first (X needs a signed-in account).",
     tiktok: "TikTok works without signing in. Private accounts need cookies."
   };

@@ -1,5 +1,6 @@
 """Live check of the web downloader from a datacenter IP (like Vercel's): real TikTok search,
-real file through the proxy, real zip. Instagram and X are only reported (they need cookies)."""
+real file through the proxy, real zip. Instagram, X and Threads are only reported (Instagram and X
+need cookies; Threads is beta and Meta may refuse a datacenter IP)."""
 import io
 import json
 import sys
@@ -58,6 +59,15 @@ for query in ("tiktok", "https://www.tiktok.com/@scout2015/video/671833539084509
 # Expected to need cookies from a server; printed so the README stays honest.
 search("natgeo", "instagram", 2)
 search("NASA", "x", 2)
+# Threads (beta), by username and by account link: reported, not required.
+for threads_query in ("zuck", "https://www.threads.com/@zuck"):
+    threads_items = [message["item"] for message in search(threads_query, "threads", 2) if message["type"] == "item"]
+    print(f"  threads items: {len(threads_items)}")
+    if threads_items:
+        threads_file = client.get("/api/file?t=" + threads_items[0]["file"])
+        threads_body = threads_file.get_data()
+        print(f"  threads first item: {threads_items[0]['name']}, file HTTP {threads_file.status_code}, "
+              f"{len(threads_body)} bytes, media={looks_like_media(threads_body)}")
 
 if failures:
     print("FAILED:", failures)

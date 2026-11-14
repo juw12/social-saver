@@ -211,15 +211,20 @@ def load_older_posts(
     log: Callable[[str], None],
     cancelled: Callable[[], bool],
     pause: float = PAGE_PAUSE_SECONDS,
+    enough: Callable[[list[dict]], bool] | None = None,
 ) -> list[dict]:
-    """Keep loading older posts of one profile until the end, the limit or a stop."""
+    """Keep loading older posts of one profile until the end, the limit or a stop.
+
+    `enough(posts)` can end the paging early (the web downloader shows one page of
+    photos/videos at a time, and posts can be text only, so a post count is no use there).
+    """
     page_info = {}
     for data in _page_json_blocks(page_html):
         page_info = find_page_info(data)
         if page_info:
             break
     cursor = page_info.get("end_cursor") if page_info.get("has_next_page") else None
-    if not cursor or (limit and len(posts) >= limit):
+    if not cursor or (limit and len(posts) >= limit) or (enough and enough(posts)):
         return posts
 
     lsd_match = LSD_TOKEN.search(page_html)
@@ -244,7 +249,7 @@ def load_older_posts(
     seen_codes = {post["code"] for post in posts}
     pages = 0
     while cursor and pages < MAX_PAGES and not cancelled():
-        if limit and len(posts) >= limit:
+        if (limit and len(posts) >= limit) or (enough and enough(posts)):
             break
         time.sleep(pause)
         form = {
@@ -273,7 +278,7 @@ def load_older_posts(
     return posts
 
 
-def _load_posts(session, target: core.Target, limit, log, cancelled, pause) -> list[dict]:
+def _load_posts(session, target: core.Target, limit, log, cancelled, pause, enough=None) -> list[dict]:
     page_url = target.url or f"https://www.threads.com/@{target.username}"
     response = session.get(page_url, timeout=30)
     response.raise_for_status()
@@ -289,7 +294,7 @@ def _load_posts(session, target: core.Target, limit, log, cancelled, pause) -> l
     if posts:
         posts = load_older_posts(
             session, page_url, response.text, target.username, posts,
-            limit, log, cancelled, pause,
+            limit, log, cancelled, pause, enough,
         )
     return posts
 
