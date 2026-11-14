@@ -73,7 +73,8 @@ Honest limits (tested from a cloud server, the same kind Vercel uses):
   load the exported file). They stay in that browser only and go along with each search;
   the server keeps nothing.
 - **Threads (beta)** is tried without signing in; if it finds nothing, paste your Threads
-  cookies the same way. THREADS_CLOUD_RESULT_PENDING
+  cookies the same way. From a cloud server it listed public posts and downloaded a
+  file without cookies (checked in CI).
 - Download links expire after a few hours; search again for fresh ones. One search can run
   up to 5 minutes (Vercel's free limit), so very large accounts load page by page.
 - **Vercel's free plan never charges, but it is not unlimited** (Hobby plan limits, read in

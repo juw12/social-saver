@@ -176,6 +176,15 @@ def test_login_wall_becomes_a_plain_cookie_hint():
     assert "cookies" in messages[-1]["message"]
 
 
+def test_instagram_engine_crash_without_sign_in_becomes_a_cookie_hint():
+    crash = "UnboundLocalError: cannot access local variable 'page' where it is not associated with a value"
+    client = make_client(error=crash)
+    messages = read_stream(client.post("/api/list", json={"query": "natgeo", "platform": "instagram"}))
+    assert messages[-1]["type"] == "error"
+    assert "cookies" in messages[-1]["message"]
+    assert "UnboundLocalError" not in messages[-1]["message"]
+
+
 def test_pasted_cookies_reach_the_engine_and_are_deleted_after():
     calls = []
     client = make_client([TIKTOK_ENTRY], calls=calls)

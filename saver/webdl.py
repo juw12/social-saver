@@ -208,7 +208,10 @@ def friendly_error(message: str, platform: str) -> str:
     label = core.PLATFORMS[platform]["label"]
     lowered = message.lower()
     if "authrequired" in lowered or "redirect to login" in lowered or "login required" in lowered \
-            or "authenticated cookies" in lowered or "401" in lowered:
+            or "authenticated cookies" in lowered or "401" in lowered \
+            or (platform == "instagram" and "unboundlocalerror" in lowered and "'page'" in lowered):
+        # The last case is how gallery-dl crashes when Instagram turns away a server
+        # that is not signed in (seen from a cloud server in CI).
         return (f"{label} only shows this to signed-in users when the request comes from a server. "
                 f"Add your {label} cookies under 'Sign-in cookies' and search again.")
     hint = core.explain_engine_message(message, label)
