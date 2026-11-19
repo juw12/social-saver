@@ -2,6 +2,8 @@ name: release
 
 # Push a tag like v1.0.1 and this makes the GitHub release with the Windows zip.
 # The landing page's "Download for Windows" button always points at the latest one.
+# The release is not marked latest here: android.yml does that once the APK is attached, so
+# releases/latest/download/SocialSaver-android.apk never points at a release without the file.
 on:
   push:
     tags: ["v*"]
@@ -21,6 +23,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" SocialSaver-windows.zip \
+            --latest=false \
             --title "Social Saver $GITHUB_REF_NAME" \
             --notes "**Windows:** download SocialSaver-windows.zip, unzip it and double-click Start Social Saver.bat. The first run installs Python (if missing) and the download engines. Start Web Downloader.bat runs the pick-and-download page on this PC for your phone (same Wi-Fi, no hosting limits).
 
