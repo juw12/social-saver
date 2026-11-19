@@ -88,12 +88,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: SocialSaver-android
-      - name: Attach the APK to the release
+      # release.yml made the release without marking it latest. With the APK attached it has both downloads,
+      # so it becomes the latest release here.
+      - name: Attach the APK to the release, then mark it latest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for attempt in 1 2 3 4 5; do
-            gh release upload "$GITHUB_REF_NAME" SocialSaver-android.apk --clobber -R "$GITHUB_REPOSITORY" && exit 0
+            if gh release upload "$GITHUB_REF_NAME" SocialSaver-android.apk --clobber -R "$GITHUB_REPOSITORY"; then
+              gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx "SocialSaver-windows.zip"
+              gh release edit "$GITHUB_REF_NAME" --latest -R "$GITHUB_REPOSITORY"
+              exit 0
+            fi
             sleep 30
           done
           exit 1
