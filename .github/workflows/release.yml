@@ -1,6 +1,7 @@
 name: release
 
-# Push a tag like v1.0.1 and this makes the GitHub release with the Windows zip.
+# Push a tag like v1.0.1 and this makes the GitHub release with the Windows zip and the Mac zip
+# (the same files: Start Social Saver.bat for Windows, Start Social Saver.command for a Mac).
 # The landing page's "Download for Windows" button always points at the latest one.
 # The release is not marked latest here: android.yml does that once the APK is attached, so
 # releases/latest/download/SocialSaver-android.apk never points at a release without the file.
@@ -18,13 +19,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the Windows zip
         run: git archive --format=zip --prefix=SocialSaver/ -o SocialSaver-windows.zip HEAD
+      - name: Build the Mac zip
+        run: |
+          git archive --format=zip --prefix=SocialSaver/ -o SocialSaver-mac.zip HEAD
+          unzip -Z SocialSaver-mac.zip "SocialSaver/Start Social Saver.command" | grep -q "^-rwx"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" SocialSaver-windows.zip \
+          gh release create "$GITHUB_REF_NAME" SocialSaver-windows.zip SocialSaver-mac.zip \
             --latest=false \
             --title "Social Saver $GITHUB_REF_NAME" \
             --notes "**Windows:** download SocialSaver-windows.zip, unzip it and double-click Start Social Saver.bat. The first run installs Python (if missing) and the download engines. Start Web Downloader.bat runs the pick-and-download page on this PC for your phone (same Wi-Fi, no hosting limits).
+
+          **Mac:** download SocialSaver-mac.zip, unzip it, then right-click Start Social Saver.command and choose Open (macOS asks once, because the file is not signed). The first run installs the download engines into the folder; Python 3.10 or newer must be on the Mac.
 
           **Android / iPhone:** see [Use it on your phone](https://github.com/juw12/social-saver#use-it-on-your-phone-android-or-iphone)."
