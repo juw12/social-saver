@@ -26,7 +26,7 @@ Python yet, it installs Python 3.12 for you first (with winget, no admin needed)
 The first run makes a Python environment inside the folder and installs the same four things. The Mac needs
 Python 3.10 or newer; without it the start file opens python.org's download page. Tried on a MacBook Pro (Intel,
 macOS 15.7, Python 3.14): the first run installed everything, the window opened, a real file was downloaded by the
-engine, and the 134 tests pass. Signing in to an account inside the Mac window has not been tried yet.
+engine, and the 134 tests pass. The sign-in windows were tried on it without signing in: for Instagram, Threads, X and TikTok each opens on the site's own login page, and the app can read the cookies it watches for. A real sign-in with a password has not been done on a Mac yet.
 
 ## Use it
 
