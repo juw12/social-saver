@@ -1,7 +1,7 @@
 ﻿# Social Saver
 
 One small app to save posts, reels, videos, stories and highlights from
-Instagram, Threads, X and TikTok. Runs on Windows, as an Android app, and as a
+Instagram, Threads, X and TikTok. Runs on Windows, on a Mac, as an Android app, and as a
 private web app you can add to the home screen of an iPhone or Android phone. You pick the types you want. Everything lands
 in one zip per account, sorted into folders. Run it again and it only adds what
 is new.
@@ -17,6 +17,16 @@ Free, runs on your own PC, phone or private server, no account with us and no AP
 
 The first run installs what it needs (Flask, pywebview, gallery-dl, yt-dlp). If the PC has no
 Python yet, it installs Python 3.12 for you first (with winget, no admin needed).
+
+**On a Mac:**
+
+1. Download **[SocialSaver-mac.zip](https://github.com/juw12/social-saver/releases/latest/download/SocialSaver-mac.zip)** and unzip it.
+2. Right-click `Start Social Saver.command` and choose **Open** (macOS asks once, because the file is not signed).
+
+The first run makes a Python environment inside the folder and installs the same four things. The Mac needs
+Python 3.10 or newer; without it the start file opens python.org's download page. Tried on a MacBook Pro (Intel,
+macOS 15.7, Python 3.14): the first run installed everything, the window opened, a real file was downloaded by the
+engine, and the 134 tests pass. Signing in to an account inside the Mac window has not been tried yet.
 
 ## Use it
 
@@ -41,6 +51,10 @@ every free hosting service has some.
 | [Phone + PC](#phone--pc-same-wi-fi) | iPhone and Android | yes, same Wi-Fi | none (runs on your PC) |
 | [Web downloader on Vercel](#web-downloader-free-no-card) | iPhone, Android, any browser | no | free, no card, about 10 GB of downloads a month |
 | [Full web app](#full-web-app-render) | iPhone and Android | no | Render may ask for a card; sleeps after 15 minutes |
+
+**iPhone and Android home screen:** open **https://juw12.github.io/social-saver/** in Safari (Share → *Add to Home Screen*)
+or Chrome (menu → *Add to Home screen*). It is a small page that remembers the address of your own copy (your Vercel
+address or your PC) and opens it; the address stays in that browser. There is no shared Social Saver that everyone uses.
 
 ### Web downloader (free, no card)
 

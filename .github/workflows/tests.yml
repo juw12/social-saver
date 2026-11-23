@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
         python: ["3.10", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
@@ -26,3 +26,8 @@ jobs:
       - name: Check the Android setup script
         if: runner.os == 'Linux'
         run: bash -n mobile/termux-setup.sh
+      - name: Check the Mac start file
+        if: runner.os == 'macOS'
+        run: |
+          bash -n "Start Social Saver.command"
+          test -x "Start Social Saver.command"
