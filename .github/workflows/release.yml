@@ -16,7 +16,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build the Windows zip
         run: git archive --format=zip --prefix=SocialSaver/ -o SocialSaver-windows.zip HEAD
       - name: Build the Mac zip
